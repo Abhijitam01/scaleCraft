@@ -1,0 +1,190 @@
+{
+  "id": "url-shortener",
+  "title": "Build a URL Shortener That Handles 1M Req/Day",
+  "description": "Start with a single server. Watch it break at 500 RPS. Fix it.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add an API Server",
+      "detail": "Drag the API Server onto the canvas. This is where every HTTP request lands.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "client", "target": "api_server" },
+      "explanation": {
+        "what": "Receives requests from users, reads and writes to the database, returns responses. Every URL shortener redirect goes through here.",
+        "why": "You need something to run your code. The API server is the brain — it takes a short code like 'abc123', looks up the original URL, and sends back a redirect.",
+        "tradeoff": "Single point of failure. One server means one bottleneck. If it goes down, every redirect fails. You'll see this break in the simulation.",
+        "realWorld": "Stripe's first API ran on a single box in a data center in Palo Alto. That held until 2013 when they started distributing across multiple servers.",
+        "capacity": "~100 RPS on commodity hardware (t3.medium, 2 vCPU, 4GB RAM)"
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Database",
+      "detail": "Drag the Database onto the canvas and connect it to your API Server.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "explanation": {
+        "what": "Stores the mapping from short codes to original URLs. Every read (redirect) and every write (new short link) goes here.",
+        "why": "Without a database, your URL mappings live only in memory — they vanish on restart. The database makes them durable.",
+        "tradeoff": "Every redirect hits the database. At 1M req/day (~12 RPS average, spikes to ~200 RPS), your single PostgreSQL instance will max out its connection pool and start queuing. You'll watch this happen in the simulation.",
+        "realWorld": "Bitly ran on a single MySQL instance in 2008. It held until the Super Bowl spike — 6,000 clicks/second — took it down in 2010. That's when they rewrote the read path with a cache.",
+        "capacity": "PostgreSQL on RDS db.t3.medium: ~500 concurrent connections, ~1,500 simple queries/sec before latency degrades"
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add a Load Balancer",
+      "detail": "Drag the Load Balancer onto the canvas. Connect it between your clients and API server.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "client", "target": "load_balancer" },
+      "explanation": {
+        "what": "Distributes incoming traffic across multiple API server instances. Clients talk to the load balancer, not directly to a server.",
+        "why": "One API server caps out around 100–200 RPS. A load balancer lets you run 5, 10, 50 identical servers and split the load across all of them. This is horizontal scaling.",
+        "tradeoff": "Adds ~1–5ms of latency per request (proxy overhead). Worth it. You're also now running the load balancer as a single point of failure — most production setups run two in active-passive configuration.",
+        "realWorld": "GitHub moved to HAProxy in 2010 to handle the traffic from their first viral spike. Before that, they were routing everything through a single nginx instance.",
+        "capacity": "AWS ALB handles 100,000+ RPS with automatic scaling. You only pay per LCU (load balancer capacity unit)."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add a Cache",
+      "detail": "Drag the Cache onto the canvas. Connect it between your API Server and Database.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "api_server", "target": "cache" },
+      "explanation": {
+        "what": "Stores recently-accessed URL mappings in memory. When you get a redirect request, check the cache first. If the short code is there, return the URL without ever hitting the database.",
+        "why": "Reads (redirects) are ~90% of URL shortener traffic. URL mappings almost never change after creation — they're perfect for caching. A cache hit takes ~0.1ms. A database read takes ~5–20ms. At 1,000 RPS, that difference is everything.",
+        "tradeoff": "Cache invalidation: if someone updates a short URL's destination, the cache holds the old value until it expires (TTL). For URL shorteners, this is acceptable — most short URLs are immutable after creation. If you need instant invalidation, you need to write-through the cache on every update.",
+        "realWorld": "Twitter's t.co shortener added Redis caching in 2011 when link expansions were causing database saturation during peak tweet storms. Cache hit rate reached 95%+ within a week of launch.",
+        "capacity": "Redis on ElastiCache cache.t3.micro: ~100,000 reads/sec, sub-millisecond latency. A single URL mapping entry is ~200 bytes — you can cache 5 million entries in 1GB RAM."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add a Read Replica",
+      "detail": "Drag the Read Replica onto the canvas. Connect it to your Database as a replica.",
+      "allowedNodeType": "read_replica",
+      "allowedEdge": { "source": "database", "target": "read_replica" },
+      "explanation": {
+        "what": "A continuously-updated copy of your primary database that handles read queries. Writes still go to the primary. Reads can go to either.",
+        "why": "Your primary database handles both reads and writes. At high traffic, reads saturate the connection pool and writes start competing. A read replica offloads reads to a separate instance — your primary can focus on writes.",
+        "tradeoff": "Replication lag: your replica is typically 10–100ms behind the primary. For URL shorteners, this is fine — a user won't notice if a brand-new short link takes 100ms to become visible everywhere. For financial transactions, this is unacceptable.",
+        "realWorld": "Instagram added read replicas to PostgreSQL in 2011 as user count hit 7M. Each photo page was doing 7–10 database reads. The replica took the read load from 90% of requests and let the primary focus on the 10% that were writes.",
+        "capacity": "Read replica adds ~100ms replication lag (network + I/O). Doubles your read throughput. AWS RDS supports up to 5 read replicas per primary."
+      }
+    },
+    {
+      "id": "step-6",
+      "stepNumber": 6,
+      "instruction": "Add a CDN",
+      "detail": "Drag the CDN onto the canvas. Connect it in front of your Load Balancer.",
+      "allowedNodeType": "cdn",
+      "allowedEdge": { "source": "client", "target": "cdn" },
+      "explanation": {
+        "what": "A global network of servers that caches your responses at the edge, close to users. A redirect request from Tokyo hits a CDN node in Tokyo, not your servers in us-east-1.",
+        "why": "Round-trip time from Tokyo to us-east-1 is ~150ms. From Tokyo to a Tokyo CDN node, it's ~5ms. For redirect requests — which are pure reads with predictable responses — CDN caching eliminates that latency entirely for cached entries.",
+        "tradeoff": "Cache invalidation is harder at the edge. When a short URL's destination changes, you need to purge the CDN cache across all edge nodes, which takes seconds to minutes. Bitly and TinyURL solve this by making short URLs immutable — you can't update them after creation.",
+        "realWorld": "Bitly serves 99%+ of redirect traffic through CloudFront edge nodes. Their origin servers (the actual URL lookup backend) only see ~1% of requests — the other 99% are cache hits at the edge.",
+        "capacity": "CloudFront has 400+ edge locations worldwide. Cache hit for a redirect: ~5ms p99. Cache miss (origin fetch): ~150ms p99. CDN absorbs ~95% of traffic at scale."
+      }
+    },
+    {
+      "id": "step-7",
+      "stepNumber": 7,
+      "instruction": "Add a Rate Limiter",
+      "detail": "Drag the Rate Limiter onto the canvas. Connect it before your Load Balancer.",
+      "allowedNodeType": "rate_limiter",
+      "allowedEdge": { "source": "cdn", "target": "rate_limiter" },
+      "explanation": {
+        "what": "Tracks how many requests each IP or user sends per second. Rejects requests that exceed a defined threshold with a 429 Too Many Requests response.",
+        "why": "Without rate limiting, a single bad actor can spam your link creation endpoint and fill your database with millions of junk short links, or send 10,000 redirect requests/sec and take down your API server. Rate limiting is your first line of defense.",
+        "tradeoff": "False positives: shared IP addresses (office NAT, university networks) have many users behind one IP. A per-IP rate limit of 100 req/min might accidentally block 200 students in a lecture hall. The fix: move to user-level rate limiting after auth. Without auth, per-IP is the only option.",
+        "realWorld": "GitHub added rate limiting to their API in 2012 after a bot farm was making 10M requests/day from 5 IPs, saturating their database connection pool for everyone else. They set 5,000 requests/hour for authenticated users, 60/hour for unauthenticated.",
+        "capacity": "Token bucket algorithm in Redis: ~50,000 rate-limit checks/sec per Redis instance. Each check is an atomic INCR + TTL check: ~0.1ms."
+      }
+    },
+    {
+      "id": "step-8",
+      "stepNumber": 8,
+      "instruction": "Add Monitoring",
+      "detail": "Drag Monitoring onto the canvas. Connect it to observe your API Servers and Database.",
+      "allowedNodeType": "monitoring",
+      "allowedEdge": { "source": "api_server", "target": "monitoring" },
+      "explanation": {
+        "what": "Collects metrics (RPS, latency, error rate, DB connection count), stores time-series data, and pages an on-call engineer when something breaks. Also: the thing you stare at during a traffic spike.",
+        "why": "Without monitoring, you're flying blind. You'll learn about outages from angry users on Twitter, not from a PagerDuty alert at 2am. Monitoring lets you catch 'error rate climbing' before it becomes 'site is down'.",
+        "tradeoff": "Monitoring is overhead. Each metric push takes CPU and network. Cardinality explosion: if you tag metrics with user ID, you get millions of distinct metric series — Datadog charges per metric series and the bill becomes non-trivial. Keep your tag cardinality low (service, endpoint, status_code — not user_id).",
+        "realWorld": "Etsy's 2013 blog post on 'measure anything, measure everything' is still the canonical reference. They were pushing 800,000 metrics/minute from 8,000 servers using StatsD + Graphite. The insight: team velocity went up when engineers could see the impact of their deploys in real-time.",
+        "capacity": "Datadog agent: ~200MB RAM, <1% CPU per host. Metric resolution: 15s default, 1s for custom. Retention: 15 months at 1-minute resolution."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "Your p99 latency is 200ms and you can't add more database replicas (you've hit the 5-replica limit). What would you try first to get p99 under 50ms?",
+        "options": [
+          { "id": "a", "text": "Add another API server behind the load balancer" },
+          { "id": "b", "text": "Add a cache (Redis) in front of the database" },
+          { "id": "c", "text": "Move to a faster database like DynamoDB" },
+          { "id": "d", "text": "Add a second load balancer" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "The latency is database-bound — you're hitting the DB for every read. A cache stores URL mappings in memory and returns them in ~0.1ms instead of ~20ms. At 90% cache hit rate, you skip the database for 9 out of 10 requests. That's how you get from 200ms to under 50ms.",
+          "wrongAnswers": {
+            "a": "More API servers spreads CPU load but doesn't reduce latency. The bottleneck is database round-trips, not CPU on the API servers. Each request still waits 200ms for the DB.",
+            "c": "Switching databases is a multi-week project with significant migration risk. A cache in front of your existing PostgreSQL is a same-day fix. Always exhaust caching before considering a database migration.",
+            "d": "A second load balancer adds redundancy and removes the LB as a single point of failure — good for reliability, irrelevant for latency. The LB is adding ~1ms overhead, not 200ms."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "Your cache hit rate is 40%. What does that mean for your database?",
+        "options": [
+          { "id": "a", "text": "The database is doing 40% less work" },
+          { "id": "b", "text": "The database still sees 60% of all reads" },
+          { "id": "c", "text": "The cache is working well and the database load is fine" },
+          { "id": "d", "text": "You need to increase cache memory" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "A 40% cache hit rate means 60% of requests miss the cache and fall through to the database. If you're getting 1,000 RPS, 600 of those are hitting the database. That's not meaningfully different from not having a cache. A useful cache hit rate is 85%+. At 40%, investigate why — your cache TTL might be too short, your cache might be too small, or your traffic pattern might have low temporal locality (every request is for a unique URL).",
+          "wrongAnswers": {
+            "a": "The database is doing 60% of the work, not 40%. A 40% hit rate means you're offloading 40 out of 100 requests to cache, but the other 60 still hit the database.",
+            "c": "40% is a warning sign, not a healthy number. A cache at 40% hit rate is a cache that's not working. You need to investigate TTL, cache size, and access patterns.",
+            "d": "Memory might not be the problem. If your cache is full and evicting entries, more memory helps. But if the issue is TTL (entries expire too fast) or access pattern (no hot URLs), more memory won't fix it."
+          }
+        }
+      },
+      {
+        "id": "q3",
+        "question": "Connection pooling dropped your error rate from 4% to 0.5%, but p99 is still 180ms. What's still broken?",
+        "options": [
+          { "id": "a", "text": "The connection pool isn't configured correctly" },
+          { "id": "b", "text": "You need more API server instances" },
+          { "id": "c", "text": "The latency is database-bound, not connection-bound" },
+          { "id": "d", "text": "Your load balancer is the bottleneck" }
+        ],
+        "correctOptionId": "c",
+        "explanation": {
+          "correct": "Connection pooling fixed throughput — you were previously exhausting connections (causing errors), and now you're not. But 180ms p99 means each query is slow, not just that you were running out of connections. Slow queries are caused by: missing indexes, table scans on large tables, lock contention, or database CPU saturation. Connection pooling doesn't make queries faster — it just lets more of them run concurrently without failing. Next step: run EXPLAIN ANALYZE on your slowest queries.",
+          "wrongAnswers": {
+            "a": "The error rate dropped from 4% to 0.5% — the pool is working. If it weren't configured correctly, you'd still see connection errors.",
+            "b": "More API servers spread load across CPUs, but your bottleneck is database latency. Each request still waits 180ms for the DB regardless of how many API servers are running.",
+            "d": "Load balancers add ~1–5ms overhead. They don't cause 180ms p99. If LB were the problem, you'd see high latency even for requests that don't hit the database."
+          }
+        }
+      }
+    ],
+    "passingScore": 2,
+    "totalQuestions": 3
+  }
+}
