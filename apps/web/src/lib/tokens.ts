@@ -3,7 +3,7 @@ export const C = {
   border:   { default: '#222222', card: '#2a2a2a', node: '#333333', panel: '#1e1e1e', faint: '#1a1a1a' },
   accent:   { primary: '#6366f1', hover: '#818cf8', soft: 'rgba(99,102,241,0.08)', glow: 'rgba(99,102,241,0.25)' },
   text:     { primary: '#ffffff', body: '#cccccc', secondary: '#888888', muted: '#555555', label: '#444444' },
-  semantic: { success: '#4ade80', successBg: 'rgba(74,222,128,0.08)', successBorder: 'rgba(74,222,128,0.25)' },
+  semantic: { success: '#4ade80', successBg: 'rgba(74,222,128,0.08)', successBorder: 'rgba(74,222,128,0.25)', error: '#ef4444', errorBg: 'rgba(239,68,68,0.08)', errorBorder: 'rgba(239,68,68,0.25)' },
   purple:   { soft: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.25)' },
 } as const;
 
@@ -17,4 +17,13 @@ export const NODE_META: Record<string, { icon: string; color: string; sublabel: 
   cdn:           { icon: 'CDN', color: '#0ea5e9', sublabel: 'edge caching' },
   rate_limiter:  { icon: 'RAT', color: '#f97316', sublabel: 'throttles requests' },
   monitoring:    { icon: 'MON', color: '#10b981', sublabel: 'observability' },
+  server:        { icon: 'SRV', color: '#6366f1', sublabel: 'compute node' },
+  worker:        { icon: 'WRK', color: '#a78bfa', sublabel: 'background job' },
+  container:     { icon: 'CTR', color: '#38bdf8', sublabel: 'docker container' },
+  function:      { icon: 'FN',  color: '#fb923c', sublabel: 'serverless fn' },
+  blob_storage:  { icon: 'S3',  color: '#fbbf24', sublabel: 'object store' },
+  message_queue: { icon: 'MQ',  color: '#34d399', sublabel: 'async queue' },
+  api_gateway:   { icon: 'GW',  color: '#818cf8', sublabel: 'gateway / proxy' },
+  search:        { icon: 'ES',  color: '#fb7185', sublabel: 'search index' },
+  stream:        { icon: 'KFK', color: '#4ade80', sublabel: 'event stream' },
 }

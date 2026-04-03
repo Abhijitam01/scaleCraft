@@ -1,10 +1,15 @@
 import { Handle, Position } from '@xyflow/react'
 import { C, NODE_META } from '@/lib/tokens'
 import { motion } from 'framer-motion'
+import { useStore } from '@/lib/store'
+import { HEALTH_COLORS } from '@/lib/computeNodeHealth'
 
 export function ComponentNode({ data }: { data: { label: string; nodeId: string } }) {
   const meta = NODE_META[data.nodeId] ?? { icon: '?', color: '#444', sublabel: '' }
-  
+  const health = useStore(s => s.nodeHealth[data.nodeId] ?? 'idle')
+  const healthColor = HEALTH_COLORS[health]
+  const isActive = health !== 'idle'
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.92 }}
@@ -13,7 +18,8 @@ export function ComponentNode({ data }: { data: { label: string; nodeId: string 
       className="rounded-[10px] px-[14px] py-[10px] min-w-[130px] font-mono flex items-center relative"
       style={{
         background: C.bg.node,
-        border: `1.5px solid ${meta.color}33`,
+        border: `1.5px solid ${isActive ? healthColor + '66' : meta.color + '33'}`,
+        boxShadow: isActive ? `0 0 8px ${healthColor}22` : undefined,
       }}
     >
       {/* Input Handle */}
@@ -45,6 +51,12 @@ export function ComponentNode({ data }: { data: { label: string; nodeId: string 
           </div>
         </div>
       </div>
+
+      {/* Health status dot */}
+      <div
+        className="absolute top-[6px] right-[6px] w-[6px] h-[6px] rounded-full"
+        style={{ background: healthColor }}
+      />
 
       {/* Output Handle */}
       <Handle

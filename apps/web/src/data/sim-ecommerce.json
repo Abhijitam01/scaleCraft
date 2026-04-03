@@ -1,0 +1,186 @@
+{
+  "_meta": {
+    "template": "ecommerce",
+    "dimensions": ["caching", "cdn", "traffic_level"],
+    "label": "illustrative",
+    "states_count": 16
+  },
+  "states": [
+    {
+      "caching": false,
+      "cdn": false,
+      "traffic_level": "low",
+      "p50_latency_ms": 80,
+      "p99_latency_ms": 190,
+      "error_rate_pct": 0.5,
+      "rps_capacity": 300,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "No cache, no CDN. Every product page request hits the API and database directly. At low traffic this is fine — 190ms p99 is acceptable. But the database is doing all the work for every page view, every product listing, every cart check."
+    },
+    {
+      "caching": false,
+      "cdn": false,
+      "traffic_level": "med",
+      "p50_latency_ms": 150,
+      "p99_latency_ms": 380,
+      "error_rate_pct": 2,
+      "rps_capacity": 600,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Traffic doubles and p99 nearly doubles too. Product catalog queries are read-heavy — the same 500 products are being fetched from the database thousands of times per minute. 2% error rate means 1 in 50 requests is failing, often on checkout."
+    },
+    {
+      "caching": false,
+      "cdn": false,
+      "traffic_level": "high",
+      "p50_latency_ms": 310,
+      "p99_latency_ms": 750,
+      "error_rate_pct": 7,
+      "rps_capacity": 850,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "7% error rate means 1 in 14 requests fails. The database is saturated — product catalog queries, inventory checks, and cart operations are all competing for the same connection pool. Customers are seeing errors on the product listing page, which is the top of the funnel."
+    },
+    {
+      "caching": false,
+      "cdn": false,
+      "traffic_level": "spike",
+      "p50_latency_ms": 580,
+      "p99_latency_ms": 1400,
+      "error_rate_pct": 20,
+      "rps_capacity": 750,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Flash sale scenario. 20% error rate, 1400ms p99. The database cannot serve this traffic pattern. Product page loads are timing out. Most customers never see the checkout. This is what happens when Shopify-scale traffic hits a single database with no caching layer."
+    },
+    {
+      "caching": true,
+      "cdn": false,
+      "traffic_level": "low",
+      "p50_latency_ms": 38,
+      "p99_latency_ms": 90,
+      "error_rate_pct": 0.1,
+      "rps_capacity": 500,
+      "cache_hit_rate_pct": 80,
+      "toggle_explanation": "Cache added. 80% of product catalog requests hit Redis instead of the database — the same 500 products being browsed by thousands of users are served from memory. p99 drops from 190ms to 90ms. Database sees only 20% of the original read load."
+    },
+    {
+      "caching": true,
+      "cdn": false,
+      "traffic_level": "med",
+      "p50_latency_ms": 52,
+      "p99_latency_ms": 125,
+      "error_rate_pct": 0.4,
+      "rps_capacity": 1000,
+      "cache_hit_rate_pct": 83,
+      "toggle_explanation": "Cache hit rate climbs to 83% as the working set stabilizes. The database is now handling primarily write operations (cart updates, order creates) and the 17% of reads that miss cache. p99 stays under 130ms even as traffic doubles from low."
+    },
+    {
+      "caching": true,
+      "cdn": false,
+      "traffic_level": "high",
+      "p50_latency_ms": 85,
+      "p99_latency_ms": 230,
+      "error_rate_pct": 1.2,
+      "rps_capacity": 1600,
+      "cache_hit_rate_pct": 85,
+      "toggle_explanation": "85% cache hit rate. Compare to no-cache at high traffic: 750ms p99 vs 230ms here, 7% error rate vs 1.2%. The database is still the bottleneck but it's handling much less load. The remaining 1.2% errors are mostly write contention on the inventory table during concurrent purchases."
+    },
+    {
+      "caching": true,
+      "cdn": false,
+      "traffic_level": "spike",
+      "p50_latency_ms": 165,
+      "p99_latency_ms": 520,
+      "error_rate_pct": 4,
+      "rps_capacity": 1400,
+      "cache_hit_rate_pct": 80,
+      "toggle_explanation": "Flash sale again, but with cache. Cache hit rate drops slightly to 80% as new products go viral. p99 is 520ms vs 1400ms without cache. Error rate is 4% vs 20%. Still degraded, but the site survives. The remaining errors are mostly on checkout — writes can't be cached."
+    },
+    {
+      "caching": false,
+      "cdn": true,
+      "traffic_level": "low",
+      "p50_latency_ms": 60,
+      "p99_latency_ms": 140,
+      "error_rate_pct": 0.3,
+      "rps_capacity": 400,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "CDN added, no application cache. Static assets (product images, CSS, JS) are served from the CDN edge — that's typically 60-70% of an e-commerce page's bytes. API calls still hit the origin. p99 improves from 190ms to 140ms because the browser gets assets faster, even though the API is unchanged."
+    },
+    {
+      "caching": false,
+      "cdn": true,
+      "traffic_level": "med",
+      "p50_latency_ms": 105,
+      "p99_latency_ms": 260,
+      "error_rate_pct": 1,
+      "rps_capacity": 750,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "CDN absorbs all static asset traffic. The origin API handles only dynamic requests. At medium traffic, 1% error rate (vs 2% without CDN) — the API server has more headroom because it's not serving images and JS bundles. But the database is still handling every product query."
+    },
+    {
+      "caching": false,
+      "cdn": true,
+      "traffic_level": "high",
+      "p50_latency_ms": 210,
+      "p99_latency_ms": 520,
+      "error_rate_pct": 4,
+      "rps_capacity": 1050,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "CDN helps but can't fix the database problem. Static assets fly — product images load instantly from edge nodes. But every product listing page still requires a database query. 4% error rate (vs 7% without CDN) because the API has more capacity. The ceiling is still the database."
+    },
+    {
+      "caching": false,
+      "cdn": true,
+      "traffic_level": "spike",
+      "p50_latency_ms": 380,
+      "p99_latency_ms": 900,
+      "error_rate_pct": 12,
+      "rps_capacity": 950,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Flash sale. CDN serves all the static assets instantly — the product page skeleton loads fast. But the dynamic data (prices, inventory counts) still hits the origin. 12% error rate vs 20% without CDN. Better, but the database is still the limiting factor for dynamic content."
+    },
+    {
+      "caching": true,
+      "cdn": true,
+      "traffic_level": "low",
+      "p50_latency_ms": 26,
+      "p99_latency_ms": 62,
+      "error_rate_pct": 0.1,
+      "rps_capacity": 700,
+      "cache_hit_rate_pct": 87,
+      "toggle_explanation": "Both cache and CDN active. Static assets from CDN edge, product catalog from Redis. The database handles only writes and cache misses. p99 is 62ms — the user experience is fast. At low traffic this is running far below capacity."
+    },
+    {
+      "caching": true,
+      "cdn": true,
+      "traffic_level": "med",
+      "p50_latency_ms": 35,
+      "p99_latency_ms": 85,
+      "error_rate_pct": 0.2,
+      "rps_capacity": 1400,
+      "cache_hit_rate_pct": 90,
+      "toggle_explanation": "90% cache hit rate as the product catalog stabilizes in Redis. CDN serving all static assets. The API server is primarily handling cart operations and checkout. p99 stays under 90ms — this is the architecture that handles Black Friday without burning down."
+    },
+    {
+      "caching": true,
+      "cdn": true,
+      "traffic_level": "high",
+      "p50_latency_ms": 55,
+      "p99_latency_ms": 145,
+      "error_rate_pct": 0.5,
+      "rps_capacity": 2200,
+      "cache_hit_rate_pct": 91,
+      "toggle_explanation": "91% cache hit rate at high traffic. Compare the full picture: no-cache/no-CDN at high traffic was 750ms p99, 7% errors, 850 RPS cap. Cache + CDN: 145ms p99, 0.5% errors, 2200 RPS cap. That's a 5x throughput improvement and 94% error reduction from two infrastructure additions."
+    },
+    {
+      "caching": true,
+      "cdn": true,
+      "traffic_level": "spike",
+      "p50_latency_ms": 95,
+      "p99_latency_ms": 280,
+      "error_rate_pct": 1.5,
+      "rps_capacity": 2000,
+      "cache_hit_rate_pct": 88,
+      "toggle_explanation": "Flash sale with full caching stack. 280ms p99 vs 1400ms with nothing. 1.5% error rate vs 20%. The remaining errors are write contention on inventory — the 'add to cart' race condition when thousands of users try to buy the last item. That requires optimistic locking or a queue, which is a different problem."
+    }
+  ]
+}

@@ -15,14 +15,16 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { useStore } from '@/lib/store'
-import { C } from '@/lib/tokens'
+import { C, NODE_META } from '@/lib/tokens'
 import { lesson } from '@/lib/content'
 import { ComponentNode } from '@/components/canvas/ComponentNode'
+import { HealthEdge } from '@/components/canvas/HealthEdge'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const NODE_TYPES = { component: ComponentNode }
+const EDGE_TYPES = { health: HealthEdge }
 
-function CanvasInner() {
+function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
   const {
     nodes,
     edges,
@@ -30,12 +32,12 @@ function CanvasInner() {
     onEdgesChange,
     onConnect,
     currentStepIndex,
-    completeStep,
+    markNodePlaced,
     isDraggingOver,
     setIsDraggingOver,
     justPlaced,
     setJustPlaced,
-    setNodes
+    setNodes,
   } = useStore()
   
   const { screenToFlowPosition } = useReactFlow()
@@ -45,14 +47,15 @@ function CanvasInner() {
 
   const isValidConnection = useCallback<IsValidConnection>(
     (connection) => {
+      if (freeDraw) return true
       const step = lesson.steps[currentStepIndex]
-      if (!step) return false
+      if (!step) return true
       return (
         connection.source === step.allowedEdge.source &&
         connection.target === step.allowedEdge.target
       )
     },
-    [currentStepIndex]
+    [freeDraw, currentStepIndex]
   )
 
   const onDrop = useCallback(
@@ -61,10 +64,8 @@ function CanvasInner() {
       setIsDraggingOver(false)
 
       const nodeType = event.dataTransfer.getData('nodeType')
-      if (!nodeType) return
-
-      const step = lesson.steps[currentStepIndex]
-      if (!step || nodeType !== step.allowedNodeType) return
+      if (!nodeType || !NODE_META[nodeType]) return
+      if (nodes.some((n) => n.id === nodeType)) return
 
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
 
@@ -72,16 +73,19 @@ function CanvasInner() {
         id: nodeType,
         type: 'component',
         position,
-        data: { label: nodeType.replace('_', ' '), nodeId: nodeType },
-        draggable: false,
+        data: { label: nodeType.replace(/_/g, ' '), nodeId: nodeType },
       }
 
       setNodes((prev) => [...prev, newNode])
       setJustPlaced(true)
       flashTimer.current = setTimeout(() => setJustPlaced(false), 700)
-      completeStep()
+
+      const step = lesson.steps[currentStepIndex]
+      if (step && nodeType === step.allowedNodeType) {
+        markNodePlaced()
+      }
     },
-    [currentStepIndex, screenToFlowPosition, setNodes, setIsDraggingOver, completeStep, setJustPlaced]
+    [currentStepIndex, nodes, screenToFlowPosition, setNodes, setIsDraggingOver, markNodePlaced, setJustPlaced]
   )
 
   const onDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -115,12 +119,12 @@ function CanvasInner() {
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
-          style: { stroke: C.accent.primary, strokeWidth: 2 },
-          animated: true,
+          type: 'health',
         }}
         className="bg-[#0a0a0a]"
       >
@@ -128,7 +132,6 @@ function CanvasInner() {
         <Controls position="bottom-left" showInteractive={false} />
       </ReactFlow>
 
-      {/* Drop Zone Overlay */}
       <AnimatePresence>
         {isDraggingOver && (
           <motion.div
@@ -155,8 +158,7 @@ function CanvasInner() {
         )}
       </AnimatePresence>
 
-      {/* Helper text if canvas is waiting for first step */}
-      {nodes.length === 1 && !isDraggingOver && currentStepIndex === 0 && (
+      {!freeDraw && nodes.length === 1 && !isDraggingOver && currentStepIndex === 0 && (
         <motion.div
           animate={{ opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
@@ -169,17 +171,14 @@ function CanvasInner() {
   )
 }
 
-export function GuidedCanvas() {
+export function GuidedCanvas({ freeDraw = false }: { freeDraw?: boolean }) {
   return (
     <ReactFlowProvider>
-      <CanvasInner />
-      {/* Custom styles override for React Flow chrome */}
+      <CanvasInner freeDraw={freeDraw} />
       <style>{`
         .react-flow__node-component {
           background: transparent !important; border: none !important; padding: 0 !important; border-radius: 0 !important; box-shadow: none !important;
         }
-        .react-flow__edge-path { stroke: ${C.accent.primary} !important; stroke-width: 2 !important; }
-        .react-flow__edge.selected .react-flow__edge-path { stroke: ${C.accent.hover} !important; stroke-width: 2.5 !important; }
         .react-flow__connection-path { stroke: ${C.accent.hover} !important; stroke-width: 2 !important; stroke-dasharray: 6 4; }
         .react-flow__handle { transition: transform 0.15s, background 0.15s !important; }
         .react-flow__handle:hover { transform: scale(1.4) !important; }

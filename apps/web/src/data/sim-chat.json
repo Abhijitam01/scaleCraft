@@ -1,0 +1,186 @@
+{
+  "_meta": {
+    "template": "chat",
+    "dimensions": ["caching", "rate_limiter", "traffic_level"],
+    "label": "illustrative",
+    "states_count": 16
+  },
+  "states": [
+    {
+      "caching": false,
+      "rate_limiter": false,
+      "traffic_level": "low",
+      "p50_latency_ms": 45,
+      "p99_latency_ms": 115,
+      "error_rate_pct": 0.3,
+      "rps_capacity": 400,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Baseline chat app. Every message fetch hits the database — message history, user presence, unread counts. At low traffic this works. 115ms p99 feels acceptable. But this architecture has no protection against bursty usage patterns, which is exactly how people use chat."
+    },
+    {
+      "caching": false,
+      "rate_limiter": false,
+      "traffic_level": "med",
+      "p50_latency_ms": 95,
+      "p99_latency_ms": 270,
+      "error_rate_pct": 2.5,
+      "rps_capacity": 700,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "2.5% error rate at medium traffic. Chat traffic is inherently bursty — everyone comes online at 9am, messages spike when something goes viral in a channel. The database is handling presence queries (is this user online?), message history reads, and write-ahead logging simultaneously."
+    },
+    {
+      "caching": false,
+      "rate_limiter": false,
+      "traffic_level": "high",
+      "p50_latency_ms": 220,
+      "p99_latency_ms": 600,
+      "error_rate_pct": 9,
+      "rps_capacity": 800,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "9% error rate. The database is overwhelmed by presence polling — clients check 'is my contact online?' every few seconds. With 10k concurrent users, that's tens of thousands of presence queries per minute hitting the same table. Message delivery starts failing."
+    },
+    {
+      "caching": false,
+      "rate_limiter": false,
+      "traffic_level": "spike",
+      "p50_latency_ms": 510,
+      "p99_latency_ms": 1200,
+      "error_rate_pct": 25,
+      "rps_capacity": 600,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "A viral moment — someone shares something and thousands of new users join simultaneously. 25% error rate. Messages are being dropped. The database write queue is backed up. Without a rate limiter, the flood of new connections amplifies the problem rather than degrading gracefully."
+    },
+    {
+      "caching": true,
+      "rate_limiter": false,
+      "traffic_level": "low",
+      "p50_latency_ms": 22,
+      "p99_latency_ms": 58,
+      "error_rate_pct": 0.1,
+      "rps_capacity": 600,
+      "cache_hit_rate_pct": 74,
+      "toggle_explanation": "Cache added. User presence data and recent message history served from Redis. 74% cache hit rate — most presence checks and message history reads skip the database entirely. p99 drops from 115ms to 58ms. The cache works well for read patterns that repeat frequently (presence polling)."
+    },
+    {
+      "caching": true,
+      "rate_limiter": false,
+      "traffic_level": "med",
+      "p50_latency_ms": 36,
+      "p99_latency_ms": 92,
+      "error_rate_pct": 0.4,
+      "rps_capacity": 1100,
+      "cache_hit_rate_pct": 79,
+      "toggle_explanation": "79% cache hit rate at medium traffic. Presence data is almost always served from Redis. New message reads occasionally miss cache (users catching up on a busy channel), but the database handles the miss load easily. Error rate drops from 2.5% to 0.4%."
+    },
+    {
+      "caching": true,
+      "rate_limiter": false,
+      "traffic_level": "high",
+      "p50_latency_ms": 72,
+      "p99_latency_ms": 205,
+      "error_rate_pct": 2,
+      "rps_capacity": 1500,
+      "cache_hit_rate_pct": 81,
+      "toggle_explanation": "Cache helps but doesn't solve the write problem. Chat is write-heavy by nature — every message is a write. At high traffic, 2% errors come from write contention on the messages table. The database is handling writes + cache misses. Cache hit rate stays at 81% because presence data is stable."
+    },
+    {
+      "caching": true,
+      "rate_limiter": false,
+      "traffic_level": "spike",
+      "p50_latency_ms": 190,
+      "p99_latency_ms": 520,
+      "error_rate_pct": 7,
+      "rps_capacity": 1100,
+      "cache_hit_rate_pct": 75,
+      "toggle_explanation": "Viral spike with cache. Cache hit rate drops to 75% because new users flooding in haven't populated their presence data yet. Still, 520ms p99 vs 1200ms without cache. 7% error rate vs 25%. The missing protection: no rate limiter means a single misbehaving client can generate thousands of requests and exhaust capacity."
+    },
+    {
+      "caching": false,
+      "rate_limiter": true,
+      "traffic_level": "low",
+      "p50_latency_ms": 44,
+      "p99_latency_ms": 110,
+      "error_rate_pct": 0.1,
+      "rps_capacity": 400,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Rate limiter added, no cache. At low traffic the rate limiter has minimal effect — legitimate usage is well within limits. p99 barely changes (110ms vs 115ms baseline). The value is protection: a buggy client sending thousands of presence polls per second no longer takes down the service."
+    },
+    {
+      "caching": false,
+      "rate_limiter": true,
+      "traffic_level": "med",
+      "p50_latency_ms": 90,
+      "p99_latency_ms": 250,
+      "error_rate_pct": 0.8,
+      "rps_capacity": 700,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Rate limiter cuts error rate from 2.5% to 0.8% at medium traffic. The errors at medium load were partly from clients hammering the API on reconnect — mobile apps that disconnect/reconnect on signal drop generating burst traffic. The rate limiter absorbs that pattern."
+    },
+    {
+      "caching": false,
+      "rate_limiter": true,
+      "traffic_level": "high",
+      "p50_latency_ms": 175,
+      "p99_latency_ms": 460,
+      "error_rate_pct": 3,
+      "rps_capacity": 900,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Rate limiter at high traffic: 3% errors vs 9% without it. The database is still the bottleneck, but the rate limiter prevents the worst-case amplification where one bad actor triggers a retry storm. Latency improvement is modest because the database is still doing all the reads."
+    },
+    {
+      "caching": false,
+      "rate_limiter": true,
+      "traffic_level": "spike",
+      "p50_latency_ms": 280,
+      "p99_latency_ms": 680,
+      "error_rate_pct": 6,
+      "rps_capacity": 900,
+      "cache_hit_rate_pct": 0,
+      "toggle_explanation": "Viral spike with rate limiter. 6% error rate vs 25% without. The rate limiter forces graceful degradation — instead of everyone getting errors, a portion of requests are queued or rate-limited and users see a 'slow down' message rather than a failed load. The database has headroom to keep core functionality working."
+    },
+    {
+      "caching": true,
+      "rate_limiter": true,
+      "traffic_level": "low",
+      "p50_latency_ms": 20,
+      "p99_latency_ms": 52,
+      "error_rate_pct": 0.05,
+      "rps_capacity": 600,
+      "cache_hit_rate_pct": 76,
+      "toggle_explanation": "Both cache and rate limiter active. At low traffic, the combination is near-perfect: Redis serves presence and history reads, the rate limiter prevents any single client from thrashing. 52ms p99, 0.05% error rate. The service has headroom to absorb unexpected spikes."
+    },
+    {
+      "caching": true,
+      "rate_limiter": true,
+      "traffic_level": "med",
+      "p50_latency_ms": 32,
+      "p99_latency_ms": 80,
+      "error_rate_pct": 0.2,
+      "rps_capacity": 1100,
+      "cache_hit_rate_pct": 82,
+      "toggle_explanation": "82% cache hit rate, rate limiter absorbing bursty reconnect traffic. Error rate is 0.2% — mostly write failures under concurrent message sends to the same channel. This is the architecture that keeps a chat service stable through 9am traffic spikes and viral moments."
+    },
+    {
+      "caching": true,
+      "rate_limiter": true,
+      "traffic_level": "high",
+      "p50_latency_ms": 58,
+      "p99_latency_ms": 160,
+      "error_rate_pct": 0.5,
+      "rps_capacity": 1700,
+      "cache_hit_rate_pct": 84,
+      "toggle_explanation": "Full architecture at high traffic: 160ms p99, 0.5% error rate, 1700 RPS capacity. Compare to baseline at high traffic: 600ms p99, 9% errors, 800 RPS. Cache + rate limiter together deliver 2x more capacity with 18x fewer errors. The remaining errors are genuine write conflicts, not infrastructure failures."
+    },
+    {
+      "caching": true,
+      "rate_limiter": true,
+      "traffic_level": "spike",
+      "p50_latency_ms": 105,
+      "p99_latency_ms": 290,
+      "error_rate_pct": 1.5,
+      "rps_capacity": 1700,
+      "cache_hit_rate_pct": 80,
+      "toggle_explanation": "Viral spike, full stack. 290ms p99 vs 1200ms with nothing. 1.5% error rate vs 25%. The rate limiter prevents the cascade: new users flood in, rate limiter queues them, cache serves the ones who get through, database only handles the misses and writes. The service degrades gracefully instead of collapsing."
+    }
+  ]
+}
