@@ -223,7 +223,7 @@ export const LESSONS: LessonMeta[] = [
     durationMin: 50,
     tags: ['WebSocket', 'Messaging'],
     category: 'Realtime',
-    isInteractive: false,
+    isInteractive: true,
   },
   {
     id: 'ecommerce-platform',
@@ -233,7 +233,7 @@ export const LESSONS: LessonMeta[] = [
     durationMin: 55,
     tags: ['Database', 'CDN'],
     category: 'Commerce',
-    isInteractive: false,
+    isInteractive: true,
   },
   {
     id: 'social-media-feed',
@@ -243,7 +243,7 @@ export const LESSONS: LessonMeta[] = [
     durationMin: 60,
     tags: ['Fan-out', 'Caching'],
     category: 'Social',
-    isInteractive: false,
+    isInteractive: true,
   },
   {
     id: 'video-streaming',
@@ -467,6 +467,16 @@ export const LESSONS: LessonMeta[] = [
   },
 
   // ── ADVANCED ──────────────────────────────────────────────────────────────
+  {
+    id: 'global-distributed',
+    title: 'Global Distributed System',
+    description: 'Design a multi-region system achieving 99.99% uptime. GeoDNS, cross-region replication, async event queues, and global observability.',
+    difficulty: 'advanced',
+    durationMin: 70,
+    tags: ['Multi-Region', 'Replication'],
+    category: 'Distributed Systems',
+    isInteractive: true,
+  },
   {
     id: 'google-maps',
     title: 'Google Maps Architecture',

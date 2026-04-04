@@ -7,45 +7,80 @@
       "id": "step-1",
       "stepNumber": 1,
       "instruction": "Add an API Gateway",
-      "detail": "Drag the API Gateway onto the canvas. It usually acts as the entry point for rate limiting.",
+      "detail": "Drag the API Gateway onto the canvas. It acts as the entry point for all external traffic.",
       "allowedNodeType": "api_gateway",
       "allowedEdge": { "source": "client", "target": "api_gateway" },
+      "hint": "API Gateway is in the Networking section. Drag it onto the canvas, then draw a connection from Client → API Gateway.",
       "explanation": {
-        "what": "A centralized entry point for all API requests. It handles cross-cutting concerns like authentication and, importantly, rate limiting.",
-        "why": "Rate limiting at the gateway level prevents malicious or excessive traffic from even reaching your backend services, saving compute resources.",
-        "tradeoff": "Adds a small amount of latency to every request. If the gateway goes down, your entire API is unreachable.",
-        "realWorld": "AWS API Gateway and Nginx both provide built-in rate limiting modules used by thousands of companies.",
-        "capacity": "Modern API Gateways can handle 50k+ RPS per instance."
+        "what": "A centralized entry point for all API requests. Handles authentication, SSL termination, and enforces rate limits before traffic hits your backend.",
+        "why": "Rate limiting at the gateway level prevents malicious or accidental traffic floods from consuming backend compute. By rejecting requests early, you protect all downstream services simultaneously.",
+        "tradeoff": "The gateway is a potential single point of failure. If it goes down, your entire API is unreachable — you must run it in active-active HA mode. Adds ~1ms to every request.",
+        "realWorld": "AWS API Gateway handles billions of requests per day for companies like Airbnb and DoorDash. Kong Gateway is deployed by Moderna for rate limiting clinical trial API traffic.",
+        "capacity": "AWS API Gateway: 10,000 RPS default per account (adjustable). Kong: 150k+ RPS on a 4-core instance. HAProxy: 200k+ RPS."
       }
     },
     {
       "id": "step-2",
       "stepNumber": 2,
       "instruction": "Add a Rate Limiter Logic Node",
-      "detail": "In this simulation, we'll use a specialized Rate Limiter component.",
+      "detail": "Drag a Rate Limiter and connect it from the API Gateway. This implements Token Bucket counting.",
       "allowedNodeType": "rate_limiter",
       "allowedEdge": { "source": "api_gateway", "target": "rate_limiter" },
+      "hint": "Rate Limiter is in the Networking section. Drag it onto the canvas, then connect API Gateway → Rate Limiter.",
       "explanation": {
-        "what": "The component that actually implements the counting logic (e.g., Token Bucket).",
-        "why": "Separating rate limiting logic allows you to fine-tune algorithms without redeploying your entire gateway.",
-        "tradeoff": "Adds an extra internal network hop.",
-        "realWorld": "Stripe uses a library called 'redis-rate-limiter' to handle their massive volume of payment requests.",
-        "capacity": "Algorithmic throughput: ~100k checks/sec."
+        "what": "The component that executes the actual counting algorithm — Token Bucket, Sliding Window Log, or Fixed Window Counter — to decide whether to allow or reject a request.",
+        "why": "Separating rate-limiting logic from the gateway allows fine-grained policies per user tier (free: 60 req/min, pro: 1000 req/min) without redeploying the gateway itself.",
+        "tradeoff": "Adds an internal network hop (~0.2ms). The algorithm choice matters: Token Bucket allows bursts, Leaky Bucket enforces constant output, Sliding Window Log is most accurate but memory-intensive.",
+        "realWorld": "Stripe's payment API uses a custom rate limiter library backed by Redis. GitHub's REST API enforces 5,000 requests/hour for authenticated tokens and 60/hour for unauthenticated. Twitter's streaming API allows 1% of all global tweets per connected app.",
+        "capacity": "Algorithm throughput in-process: ~1M decisions/sec. Bottleneck shifts to the Redis state store."
       }
     },
     {
       "id": "step-3",
       "stepNumber": 3,
-      "instruction": "Add Redis for State",
-      "detail": "Drag a Cache (Redis) and connect it to the Rate Limiter.",
+      "instruction": "Add Redis for Distributed State",
+      "detail": "Drag a Cache (Redis) and connect it from the Rate Limiter. This stores counters across all server instances.",
       "allowedNodeType": "cache",
       "allowedEdge": { "source": "rate_limiter", "target": "cache" },
+      "hint": "Cache (Redis) is in the Storage section. Drag it onto the canvas, then connect Rate Limiter → Cache to store distributed counters.",
       "explanation": {
-        "what": "Stores the current state of counters (e.g., how many tokens are left for a specific IP).",
-        "why": "Standard in-memory counters won't work in a distributed system because requests from the same user might hit different servers. Redis provides atomic operations (INCR) to keep counters consistent.",
-        "tradeoff": "The 'thundering herd' problem if Redis is slow. All requests will wait on the Redis check.",
-        "realWorld": "GitHub's API rate limits are tracked in a dedicated Redis cluster to ensure consistency across their global infrastructure.",
-        "capacity": "Redis can handle ~100k atomic operations per second on a single core."
+        "what": "In-memory store that holds per-user/per-IP request counters with TTL expiration. Redis atomic INCR + EXPIRE operations make counter updates safe under concurrency.",
+        "why": "Without a shared store, each API server tracks counters independently. A user with 3 servers can make 3x the allowed requests — one per server — defeating the rate limiter entirely.",
+        "tradeoff": "Redis becomes a hot path dependency. If Redis latency spikes from 0.5ms to 10ms, every API request is delayed. Mitigate with Redis Cluster or a local leaky-bucket fallback.",
+        "realWorld": "GitHub rate limits are tracked in a dedicated Redis cluster with sentinel failover. Cloudflare uses a distributed in-house key-value store across 300+ PoPs to enforce per-IP rate limits at sub-millisecond speed.",
+        "capacity": "Redis single-threaded: 100k INCR/sec on 1 core. Redis Cluster: 1M+ ops/sec across 6 shards. Use EVAL scripts to atomically check-and-increment in a single RTT."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add the Backend API Server",
+      "detail": "Drag an API Server and connect it from the Rate Limiter. Allowed requests pass through to this layer.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "rate_limiter", "target": "api_server" },
+      "hint": "API Server is in the Compute section. Drag it onto the canvas, then connect Rate Limiter → API Server so allowed requests reach your backend.",
+      "explanation": {
+        "what": "The application logic layer that only receives requests the rate limiter has explicitly permitted. Returns HTTP 429 Too Many Requests back through the limiter for rejected traffic.",
+        "why": "By positioning the API server behind the rate limiter, you guarantee it only processes legitimate traffic. This protects expensive operations like database writes from abuse.",
+        "tradeoff": "Adding a rate limiter in-path increases request latency by 0.5-2ms (Redis round trip). For latency-sensitive APIs (<5ms SLA), consider embedding the limiter in the API server process itself.",
+        "realWorld": "Twitter's API tier system serves 500k developers. Their backend API servers only process requests that passed the rate limiter. Rejected requests return in <5ms — cheaper than executing real API logic.",
+        "capacity": "Node.js API server: 10k-50k RPS depending on workload. Rate limiter overhead: <1ms p99 when Redis is colocated in the same AZ."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add Monitoring",
+      "detail": "Drag a Monitoring node and connect it from the API Server. Track rate limit hit rates, Redis latency, and abuse patterns.",
+      "allowedNodeType": "monitoring",
+      "allowedEdge": { "source": "api_server", "target": "monitoring" },
+      "hint": "Monitoring is in the Observability section. Drag it onto the canvas, then connect API Server → Monitoring.",
+      "explanation": {
+        "what": "Metrics pipeline that tracks: rate limit hit rate (% of requests rejected), Redis p99 latency, requests per user/IP, abuse patterns, and quota exhaustion events.",
+        "why": "Without visibility, you can't tune limits. If 15% of requests are being rate-limited, either limits are too strict or you have an active abuse campaign. You need data to tell the difference.",
+        "tradeoff": "Monitoring adds a small write overhead (emitting metrics). High cardinality labels (per-user metrics) can overwhelm Prometheus or Datadog — use aggregated counters plus sampling for user-level data.",
+        "realWorld": "Twilio monitors rate limit breach events in real-time. Sudden spikes (>10x baseline rejections) trigger automated alerts and optionally block IPs via Cloudflare's Firewall API. They publish rate limit dashboards in their status page.",
+        "capacity": "Datadog agent: <1% CPU overhead. Prometheus + Grafana: handles 1M+ time-series on a single machine. Budget for 2-5% of total request volume as monitoring overhead."
       }
     }
   ],
@@ -55,23 +90,61 @@
         "id": "q1",
         "question": "Which algorithm is best for allowing short bursts of traffic while maintaining a steady average rate?",
         "options": [
-          { "id": "a", "text": "Fixed Window" },
+          { "id": "a", "text": "Fixed Window Counter" },
           { "id": "b", "text": "Token Bucket" },
           { "id": "c", "text": "Leaky Bucket" },
-          { "id": "d", "text": "Sliding Window" }
+          { "id": "d", "text": "Sliding Window Log" }
         ],
         "correctOptionId": "b",
         "explanation": {
-          "correct": "Token Bucket allows for bursts up to the bucket size. Tokens accumulate when traffic is low, and can be used all at once for a burst.",
+          "correct": "Token Bucket accumulates tokens over time up to a bucket capacity. Unused capacity builds up, allowing a burst equal to bucket size before being rate-limited. This matches real traffic patterns where users sometimes send many requests at once.",
           "wrongAnswers": {
-            "a": "Fixed Window allows 'double' traffic at the boundary of windows.",
-            "c": "Leaky Bucket shapes traffic to a strictly constant rate, forbidding bursts.",
-            "d": "Sliding Window is accurate but doesn't handle bursts as naturally as Token Bucket."
+            "a": "Fixed Window allows a 'double burst' at window boundaries — a user can send N requests at the end of window 1 and N more at the start of window 2.",
+            "c": "Leaky Bucket drains requests at a constant rate regardless of available capacity. It smooths traffic but forbids any burst whatsoever.",
+            "d": "Sliding Window Log is the most accurate but stores a timestamp per request in memory — O(N) space where N is the request count in the window."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "Why must rate limiter counters be stored in Redis rather than in-process memory?",
+        "options": [
+          { "id": "a", "text": "Redis is faster than in-process memory" },
+          { "id": "b", "text": "With 3 API servers, each tracks separately — users can exceed limits by sending to different servers" },
+          { "id": "c", "text": "In-process counters restart on every request" },
+          { "id": "d", "text": "Redis automatically enforces rate limits without code" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "In a horizontally scaled system, a user limited to 100 req/min can hit 300 req/min total by distributing requests across 3 servers — each counting independently. Shared Redis state ensures the global limit is honored.",
+          "wrongAnswers": {
+            "a": "In-process memory is orders of magnitude faster than Redis. The Redis tradeoff is consistency across instances, not raw speed.",
+            "c": "In-process counters persist across requests — they only reset if the process crashes or restarts.",
+            "d": "Redis provides atomic operations (INCR, EXPIRE) but requires application code to implement the rate limiting logic."
+          }
+        }
+      },
+      {
+        "id": "q3",
+        "question": "GitHub allows 5,000 API requests per hour for authenticated users. What HTTP status code should be returned when this limit is exceeded?",
+        "options": [
+          { "id": "a", "text": "400 Bad Request" },
+          { "id": "b", "text": "401 Unauthorized" },
+          { "id": "c", "text": "429 Too Many Requests" },
+          { "id": "d", "text": "503 Service Unavailable" }
+        ],
+        "correctOptionId": "c",
+        "explanation": {
+          "correct": "RFC 6585 defines HTTP 429 specifically for rate limiting. Well-designed APIs also include Retry-After and X-RateLimit-Remaining headers so clients know when to retry.",
+          "wrongAnswers": {
+            "a": "400 indicates a malformed request — the syntax is wrong, not the volume.",
+            "b": "401 means the client is not authenticated at all — unrelated to request volume.",
+            "d": "503 means the server is temporarily unavailable, typically due to overload or maintenance — not a policy enforcement response."
           }
         }
       }
     ],
-    "passingScore": 1,
-    "totalQuestions": 1
+    "passingScore": 2,
+    "totalQuestions": 3
   }
 }

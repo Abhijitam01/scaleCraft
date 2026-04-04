@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '@/lib/store'
-import { FAILURE_SCENARIOS } from '@/lib/FailureCascade'
+import { FAILURE_SCENARIOS, SCENARIO_NAMES } from '@/lib/FailureCascade'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Zap } from 'lucide-react'
 import { C } from '@/lib/tokens'
@@ -77,7 +77,7 @@ export function FailureScenarioPanel() {
                     className="text-[11px] font-semibold mb-1"
                     style={{ color: isActive ? C.semantic.error : '#ccc' }}
                   >
-                    {scenario.name}
+                    {SCENARIO_NAMES[scenario.id] ?? scenario.id}
                   </div>
                   <div className="text-[10px] leading-[1.5] text-[#555]">
                     {scenario.description}

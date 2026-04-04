@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ValidationRuleSchema } from '@/lib/validateLesson'
 
 // ─── Lesson schema ───────────────────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ const LessonStepSchema = z.object({
     realWorld: z.string(),
     capacity: z.string(),
   }),
+  hint: z.string().optional(),
+  validationRules: z.array(ValidationRuleSchema).optional().default([]),
 })
 
 export const LessonSchema = z.object({
@@ -55,7 +58,7 @@ export type QuizQuestion = z.infer<typeof QuizQuestionSchema>
 
 // ─── Simulation schema ────────────────────────────────────────────────────────
 
-const TrafficLevelSchema = z.enum(['low', 'med', 'high', 'spike'])
+const TrafficLevelSchema = z.enum(['idle', 'low', 'med', 'high', 'spike'])
 const ReadRatioSchema = z.union([z.literal(0.9), z.literal(0.99)])
 
 export const SimulationStateSchema = z.object({

@@ -1,0 +1,163 @@
+{
+  "id": "social-media-feed",
+  "title": "Design a Social Media News Feed",
+  "description": "Build a system that delivers personalized feeds to millions of users in real time. Learn feed generation, fan-out on write vs read, and read replica strategies.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add an API Server",
+      "detail": "Drag an API Server onto the canvas. This handles feed requests and post creation.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "client", "target": "api_server" },
+      "hint": "API Server is in the Compute section. Drag it onto the canvas, then draw a connection from Client → API Server.",
+      "explanation": {
+        "what": "The stateless application layer serving two primary operations: reading a user's feed (GET /feed) and creating a new post (POST /post). Each operation has very different scaling requirements.",
+        "why": "Feed reads are 100-1000x more frequent than post writes on any social network. Designing the API layer to handle this asymmetry is fundamental — you'll optimize reads aggressively even at the cost of write complexity.",
+        "tradeoff": "Stateless API servers scale horizontally, but feed generation logic (ranking, filtering) is CPU-intensive. A feed with 1,000 potential posts requires sorting and scoring — this work must either be precomputed or constrained to small candidate sets.",
+        "realWorld": "Twitter serves 350,000 feed reads per second at peak. Each feed requires aggregating posts from up to 2,000 accounts a user follows. Their API tier runs thousands of stateless servers behind load balancers. Instagram's feed API handles 500M daily active users.",
+        "capacity": "API server: ~5k-20k feed reads/sec per instance (simple feed without ranking). With ML ranking: 500-2k RPS per instance (CPU-bound). Horizontal scale to handle total volume."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Load Balancer",
+      "detail": "Drag a Load Balancer and connect it from the client. Distribute feed requests across multiple API servers.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "client", "target": "load_balancer" },
+      "hint": "Load Balancer is in the Networking section. Drag it onto the canvas, then draw a connection from Client → Load Balancer.",
+      "explanation": {
+        "what": "Layer-7 load balancer that distributes incoming feed requests across a pool of API servers. Uses round-robin or least-connections algorithm. For social media, consistent hashing can route a user's requests to the same server (warm cache).",
+        "why": "Social media has massive concurrent user peaks — major events (Super Bowl, election results, breaking news) cause 10x traffic spikes in minutes. A load balancer enables rapid horizontal scaling: add servers, update the pool, traffic distributes instantly.",
+        "tradeoff": "Stateless routing (round-robin) is simple but wastes in-process caches — each server has a cold cache for users it hasn't seen. Consistent hashing routes the same user to the same server, improving cache hit rates but reducing fault tolerance.",
+        "realWorld": "Twitter uses a layer of load balancers (HAProxy) in front of their API tier. During breaking news events, they auto-scale API servers and update the LB pool within 2-3 minutes. Facebook uses their own load balancer (Proxygen) handling 1M+ RPS per instance.",
+        "capacity": "AWS ALB: 500k RPS per load balancer. HAProxy: 200k RPS on 4-core. The load balancer itself rarely becomes the bottleneck — API server capacity limits you first."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add a Feed Cache",
+      "detail": "Drag a Cache (Redis) and connect it from the API Server. Pre-computed feeds are stored here for instant delivery.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "api_server", "target": "cache" },
+      "hint": "Cache is in the Storage section. Drag it onto the canvas, then connect API Server → Cache to store pre-computed feed timelines.",
+      "explanation": {
+        "what": "Redis stores pre-computed feed timelines for each user as sorted sets (post ID + score). On feed request, the API reads the top N posts from Redis — no database query needed. TTL: typically 24-72 hours.",
+        "why": "Without caching, every feed request requires querying posts from all accounts a user follows, ranking them, and returning results — possibly scanning millions of rows. At Twitter scale (350k RPS), this would require an impossibly large database tier.",
+        "tradeoff": "Fan-out on write: when a user posts, you write the post to every follower's cached feed. For a celebrity with 50M followers, one post triggers 50M cache writes — called the 'celebrity problem'. Twitter uses hybrid: precompute for regular users, query at read time for users following celebrities.",
+        "realWorld": "Twitter's timeline service (Thrift-based) stores ~800 tweet IDs per user in Redis. Each tweet in the feed is a pointer to the tweet object — not the tweet content itself. Facebook's TAO system stores social graph data in a cache tier serving 99%+ of reads. Instagram's feed uses Redis sorted sets with post_id as score.",
+        "capacity": "Redis sorted set: O(log N) insert, O(log N + K) range query. 800 posts × 50M users × 8 bytes per post ID = 320GB RAM. Practical limit: shard by user_id across a Redis cluster. Single Redis Cluster: 100k+ ops/sec."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add a Primary Database",
+      "detail": "Drag a Database and connect it from the API Server. Store posts, users, and social graph (follow relationships).",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "hint": "Database is in the Storage section. Drag it onto the canvas, then connect API Server → Database to persist posts and the social graph.",
+      "explanation": {
+        "what": "Source of truth for all persistent data: post content, user profiles, follower/following relationships (social graph), likes, comments. Cache tier stores copies — DB stores the canonical version.",
+        "why": "Cache misses, TTL expirations, and account deletions all require fallback to the database. The DB is also the write target for new posts, follows, and profile updates — writes must be durable before being fanned out to caches.",
+        "tradeoff": "Social graph queries are expensive in relational databases (JOIN users → follows → users for 'friends of friends'). Twitter moved their social graph to a specialized graph store (FlockDB). Facebook uses TAO (Tao) — a custom graph database — for all social graph reads.",
+        "realWorld": "Instagram started on PostgreSQL and still uses it — but heavily sharded across hundreds of nodes. Their schema has user_id as a shard key for both users and posts tables, enabling colocated joins. Cassandra powers Twitter's tweet storage (100B+ tweets) while MySQL handles user data.",
+        "capacity": "PostgreSQL: 5k reads/sec, 2k writes/sec per node. Social graph (follow table): 100M users × 500 follows average = 50B rows — requires sharding or specialized graph store. Vertical limit of SQL for social graph: ~10M users before query performance degrades."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add Read Replicas",
+      "detail": "Drag a Read Replica and connect it from the Database. Scale reads for profile lookups and post fetches.",
+      "allowedNodeType": "read_replica",
+      "allowedEdge": { "source": "database", "target": "read_replica" },
+      "hint": "Read Replica is in the Storage section. Drag it onto the canvas, then connect Database → Read Replica to scale read throughput for feed queries.",
+      "explanation": {
+        "what": "PostgreSQL/MySQL replicas that receive all writes from the primary via WAL (Write-Ahead Log) streaming. Replicated within milliseconds. API servers route read queries to replicas, write queries to primary.",
+        "why": "Social media reads outnumber writes 100:1 to 1000:1. With 5 read replicas, you quintuple read throughput. Even with Redis caching 95% of reads, the remaining 5% of 350k RPS = 17,500 DB reads/sec — requiring multiple replicas.",
+        "tradeoff": "Replica lag: writes appear on replicas 10-100ms after the primary commits. A user who just posted may not see their own post if their next request hits a replica. Solution: route post author's own read requests to the primary for 1-2 seconds after a write ('read-your-writes consistency').",
+        "realWorld": "Instagram runs PostgreSQL with multiple replicas per shard. Their pgBouncer connection pool routes all reads to replicas. Twitter's Manhattan distributed database (Cassandra-like) provides configurable consistency per query — feeds use eventual consistency (faster), payment-related operations use strong consistency.",
+        "capacity": "Each replica adds ~5k reads/sec capacity. 5 replicas: 25k reads/sec. Replica lag target: <100ms (monitor with pg_stat_replication). Replica count scales with read traffic — add replicas as DAU grows."
+      }
+    },
+    {
+      "id": "step-6",
+      "stepNumber": 6,
+      "instruction": "Add an Async Fan-out Queue",
+      "detail": "Drag a Message Queue and connect it from the API Server. When a user posts, fan out to followers' feeds asynchronously.",
+      "allowedNodeType": "message_queue",
+      "allowedEdge": { "source": "api_server", "target": "message_queue" },
+      "hint": "Message Queue is in the Messaging section. Drag it onto the canvas, then connect API Server → Message Queue to fan out posts to followers asynchronously.",
+      "explanation": {
+        "what": "Kafka or SQS queue that receives post events. Fan-out workers subscribe and push the new post ID to each follower's cached feed timeline. Decouples post creation (fast, synchronous) from feed update (slow, async).",
+        "why": "If post creation synchronously updated all follower feeds, posting would take seconds for users with millions of followers. Async queue makes posting instant regardless of follower count. Fan-out workers process in the background.",
+        "tradeoff": "Eventual consistency: followers see the new post 1-5 seconds after creation (queue processing delay). This is acceptable for social media ('eventual delivery') but not for real-time systems like trading or messaging.",
+        "realWorld": "Twitter's Fan-out service was built specifically for this problem. A post from @BarackObama (130M followers) triggers 130M cache write operations — their Kafka cluster handles this at 100M events/sec. Facebook's Newsfeed uses a similar async fan-out architecture with priority queues (closer friends get updates first).",
+        "capacity": "Kafka: 1M+ messages/sec. Fan-out throughput: 1 post × 1M followers = 1M cache writes/sec per high-follower post. Scale fan-out workers independently. Partition Kafka by user_id to ensure ordering per user."
+      }
+    },
+    {
+      "id": "step-7",
+      "stepNumber": 7,
+      "instruction": "Add Monitoring",
+      "detail": "Drag a Monitoring node and connect it from the API Server. Track feed latency, cache hit rates, and queue depth.",
+      "allowedNodeType": "monitoring",
+      "allowedEdge": { "source": "api_server", "target": "monitoring" },
+      "hint": "Monitoring is in the Observability section. Drag it onto the canvas, then connect API Server → Monitoring to track feed latency and cache hit rates.",
+      "explanation": {
+        "what": "Observability stack (Prometheus + Grafana, Datadog, or equivalent) tracking: feed read p99 latency (target: <50ms), cache hit rate (target: 95%+), Kafka consumer lag (target: <1s), replica lag, and fan-out worker throughput.",
+        "why": "Feed latency is the most user-visible metric. A 100ms increase in feed load time causes measurable engagement drops. Without monitoring, you can't detect cache misses, replica lag spikes, or queue buildup before they impact users.",
+        "tradeoff": "High-cardinality metrics (per-user feed latency) are expensive in Prometheus — use histograms instead of per-user labels. Sampling (record 1% of requests with full tracing) combined with aggregated counters gives visibility without cost explosion.",
+        "realWorld": "Twitter's Observability team monitors 10M+ metrics. Their SLO for home timeline: p99 < 100ms. Any breach triggers automated alerts and capacity scaling. Instagram monitors feed delivery rate (posts appearing in followers' feeds) — a drop indicates fan-out queue backup.",
+        "capacity": "Datadog: $15-30/host/month. Prometheus + Grafana: open source, self-host. Retention: 15-30 days for raw metrics, 1 year for downsampled. Alert thresholds: p99 feed latency >100ms, cache hit rate <90%, queue lag >5s."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "A celebrity user has 50 million followers. When they post, you update all 50M follower feeds synchronously. What is the main problem?",
+        "options": [
+          { "id": "a", "text": "The database can't store 50M records" },
+          { "id": "b", "text": "Post creation blocks for minutes while all 50M cache writes complete" },
+          { "id": "c", "text": "CDN can't cache the post" },
+          { "id": "d", "text": "The celebrity runs out of rate limit" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "50M synchronous Redis writes at 100k writes/sec = 500 seconds of blocking. The celebrity's POST request would time out. This is the 'celebrity problem' — solved with async fan-out queues and hybrid push/pull strategies.",
+          "wrongAnswers": {
+            "a": "50M records is trivial for any modern database — this is a latency problem, not a storage problem.",
+            "c": "CDN caches public content. The issue is distributing to personalized feeds, not cacheable public endpoints.",
+            "d": "Rate limiting is about request frequency, not follower count. The celebrity could post once and trigger this problem."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "Your feed cache stores 800 recent post IDs per user. A user follows 500 accounts. How does the system serve a feed request?",
+        "options": [
+          { "id": "a", "text": "Query all 500 accounts' posts from the database and sort them" },
+          { "id": "b", "text": "Read the pre-computed sorted list from Redis — no database query" },
+          { "id": "c", "text": "Scan all posts in the database for the last 24 hours" },
+          { "id": "d", "text": "Ask each of the 500 accounts' servers for their latest post" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "With fan-out on write, the cache already contains the merged, sorted feed. Feed reads are O(1) Redis lookups — no database query needed. This is why Twitter can serve 350k feed reads/sec: most are pure Redis reads.",
+          "wrongAnswers": {
+            "a": "Querying 500 accounts' posts at read time is 'fan-out on read' — used only for users following celebrities. For regular users, pre-computed caches are faster.",
+            "c": "Full table scans are never the answer at social media scale — 100B+ posts makes this impossible.",
+            "d": "This 'push' model where each account serves its own followers is used in decentralized systems (ActivityPub) but not at centralized scale."
+          }
+        }
+      }
+    ],
+    "passingScore": 1,
+    "totalQuestions": 2
+  }
+}

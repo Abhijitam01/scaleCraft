@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect, useState } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -37,11 +37,35 @@ function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
   const setJustPlaced = useStore(s => s.setJustPlaced)
   const setNodes = useStore(s => s.setNodes)
   const activeLesson = useStore(s => s.activeLesson)
-  
+  const setSelectedNodeId = useStore(s => s.setSelectedNodeId)
+  const lastConnectionResult = useStore(s => s.lastConnectionResult)
+  const setLastConnectionResult = useStore(s => s.setLastConnectionResult)
+  const [isShaking, setIsShaking] = useState(false)
+
   const { screenToFlowPosition } = useReactFlow()
   const flashTimer = useRef<NodeJS.Timeout>(undefined)
+  const shakeTimer = useRef<NodeJS.Timeout>(undefined)
 
-  useEffect(() => () => { clearTimeout(flashTimer.current) }, [])
+  useEffect(() => {
+    if (lastConnectionResult === 'fail') {
+      setIsShaking(true)
+      shakeTimer.current = setTimeout(() => {
+        setIsShaking(false)
+        setLastConnectionResult(null)
+      }, 600)
+    } else if (lastConnectionResult === 'pass') {
+      shakeTimer.current = setTimeout(() => {
+        setLastConnectionResult(null)
+      }, 600)
+    }
+    return () => clearTimeout(shakeTimer.current)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastConnectionResult])
+
+  useEffect(() => () => {
+    clearTimeout(flashTimer.current)
+    clearTimeout(shakeTimer.current)
+  }, [])
 
   const isValidConnection = useCallback<IsValidConnection>(
     (connection) => {
@@ -100,7 +124,7 @@ function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
 
   return (
     <div
-      className="flex-1 h-full relative"
+      className={`flex-1 h-full relative${isShaking ? ' canvas-shake' : ''}`}
       onDrop={onDrop}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -115,6 +139,7 @@ function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
         isValidConnection={isValidConnection}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
@@ -174,6 +199,16 @@ export function GuidedCanvas({ freeDraw = false }: { freeDraw?: boolean }) {
     <ReactFlowProvider>
       <CanvasInner freeDraw={freeDraw} />
       <style>{`
+        @keyframes canvas-shake {
+          0%, 100% { transform: translateX(0); }
+          15% { transform: translateX(-6px); }
+          30% { transform: translateX(6px); }
+          45% { transform: translateX(-5px); }
+          60% { transform: translateX(5px); }
+          75% { transform: translateX(-3px); }
+          90% { transform: translateX(3px); }
+        }
+        .canvas-shake { animation: canvas-shake 0.6s ease-in-out; }
         .react-flow__node-component {
           background: transparent !important; border: none !important; padding: 0 !important; border-radius: 0 !important; box-shadow: none !important;
         }

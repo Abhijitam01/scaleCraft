@@ -18,6 +18,7 @@ export function ComponentCard({
 
   return (
     <motion.div
+      data-testid={`component-card-${nodeType}`}
       draggable={!disabled}
       onDragStart={(e: any) => {
         e.dataTransfer.setData('nodeType', nodeType)

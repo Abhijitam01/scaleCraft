@@ -1,10 +1,18 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { BookOpen, Compass, Zap, TrendingUp, Clock, Star, ArrowRight, ChevronRight } from 'lucide-react'
+import { BookOpen, Compass, Zap, TrendingUp, Clock, Star, ArrowRight, ChevronRight, Play } from 'lucide-react'
 import { C } from '@/lib/tokens'
 import { LESSONS, getLessonsByDifficulty } from '@/data/lessons-catalog'
+
+interface ProgressEntry {
+  id: string
+  title: string
+  difficulty: 'beginner' | 'intermediate' | 'advanced'
+  durationMin: number
+}
 
 const STATS = [
   { label: 'Lessons', value: '65', icon: BookOpen },
@@ -14,7 +22,7 @@ const STATS = [
 ]
 
 const FEATURED = LESSONS.filter(l =>
-  ['url-shortener', 'real-time-chat', 'youtube', 'google-maps'].includes(l.id)
+  ['url-shortener', 'rate-limiter', 'consistent-hashing', 'cdn-design'].includes(l.id)
 )
 
 const QUICK_START = getLessonsByDifficulty('beginner').slice(0, 3)
@@ -37,6 +45,17 @@ const TOPICS = [
 ]
 
 export default function DashboardPage() {
+  const [progress, setProgress] = useState<ProgressEntry | null>(null)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('scalecraft_progress')
+      if (raw) setProgress(JSON.parse(raw))
+    } catch {
+      // ignore
+    }
+  }, [])
+
   return (
     <div className="h-full overflow-y-auto" style={{ background: C.bg.app }}>
       <div className="max-w-5xl mx-auto px-8 py-10">
@@ -74,6 +93,50 @@ export default function DashboardPage() {
             </div>
           ))}
         </motion.div>
+
+        {progress && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.08 }}
+            className="mb-6"
+          >
+            <h2 className="text-[16px] font-semibold text-white mb-3">Continue learning</h2>
+            <Link href={`/lessons/${progress.id}`}>
+              <motion.div
+                whileHover={{ x: 4 }}
+                transition={{ duration: 0.15 }}
+                className="flex items-center gap-4 p-4 rounded-[12px] cursor-pointer"
+                style={{
+                  background: `linear-gradient(135deg, ${C.accent.primary}12, ${C.bg.panel})`,
+                  border: `1px solid ${C.accent.primary}30`,
+                }}
+              >
+                <div
+                  className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
+                  style={{ background: `${C.accent.primary}20` }}
+                >
+                  <Play size={16} style={{ color: C.accent.primary }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[14px] font-semibold text-white truncate">{progress.title}</div>
+                  <div className="text-[12px] mt-0.5" style={{ color: C.text.secondary }}>
+                    {progress.durationMin}m · <span
+                      className="font-semibold uppercase tracking-wide text-[10px]"
+                      style={{ color: DIFF_COLOR[progress.difficulty] }}
+                    >{progress.difficulty}</span>
+                  </div>
+                </div>
+                <span
+                  className="text-[11px] px-3 py-1 rounded-full font-semibold shrink-0"
+                  style={{ background: `${C.accent.primary}20`, color: C.accent.primary }}
+                >
+                  Resume
+                </span>
+              </motion.div>
+            </Link>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-3 gap-6">
           <motion.div

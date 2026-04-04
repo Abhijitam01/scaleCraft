@@ -6,6 +6,21 @@ interface TopologyPayload {
   edges: { source: string; target: string }[]
 }
 
+const SYSTEM_PROMPT = `You are an expert distributed systems engineer doing a quick architecture review.
+Analyze the system design and return ONLY valid JSON in this exact shape:
+{
+  "criticalFlaw": "One sentence describing the most critical architectural problem, or null if none",
+  "improvements": ["Specific actionable improvement", "Another specific improvement"],
+  "positiveObservation": "One sentence about what the architect did well, or null"
+}
+
+Rules:
+- criticalFlaw: the single most important problem (SPOF, missing cache, no rate limiting, etc.) — null if design is solid
+- improvements: 2-3 concrete, specific actions using real component names and numbers
+- positiveObservation: genuine strength of the design — not generic praise
+- Use real capacity numbers when relevant (e.g. "Redis handles 100k ops/sec vs DB's 5k")
+- Be direct. No filler words. No preamble. Return only the JSON object.`
+
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
@@ -18,21 +33,11 @@ export async function POST(req: Request) {
   const nodeList = topology.nodes.filter(n => n !== 'client').join(', ') || 'none'
   const edgeList = topology.edges.map(e => `${e.source} → ${e.target}`).join(', ') || 'none'
 
-  const system = `You are a senior distributed systems engineer doing a quick design review.
-Be direct, concrete, and terse — no filler. Reference the specific components by name.
-Structure your response exactly like this (no headers, just the text):
-
-One sentence overall verdict.
-
-Strengths: [one concrete strength based on what's placed]
-Gap: [the single most important missing piece or bottleneck]
-Fix: [one specific action to improve the design]`
-
-  const user = `Review this ${topology.template} system design:
-Components placed: ${nodeList}
+  const userMessage = `Review this system design:
+Components: ${nodeList}
 Connections: ${edgeList}
 
-What's the verdict?`
+Return only the JSON critique.`
 
   const client = new Anthropic({ apiKey })
   const encoder = new TextEncoder()
@@ -42,9 +47,10 @@ What's the verdict?`
       try {
         const stream = client.messages.stream({
           model: 'claude-sonnet-4-6',
-          max_tokens: 250,
-          system,
-          messages: [{ role: 'user', content: user }],
+          max_tokens: 800,
+          temperature: 0.3,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userMessage }],
         })
 
         for await (const event of stream) {

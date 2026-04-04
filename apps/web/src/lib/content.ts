@@ -3,6 +3,9 @@ import rateLimiterRaw from '@/data/lesson-rate-limiter.json'
 import consistentHashingRaw from '@/data/lesson-consistent-hashing.json'
 import ecommerceRaw from '@/data/lesson-ecommerce.json'
 import cdnRaw from '@/data/lesson-cdn.json'
+import socialFeedRaw from '@/data/lesson-social-media-feed.json'
+import realTimeChatRaw from '@/data/lesson-real-time-chat.json'
+import globalDistributedRaw from '@/data/lesson-global-distributed.json'
 import simStatesRaw from '@/data/simulationStates.json'
 import ecSimStatesRaw from '@/data/sim-ecommerce.json'
 import chatSimStatesRaw from '@/data/sim-chat.json'
@@ -17,6 +20,9 @@ const LESSON_REGISTRY: Record<string, unknown> = {
   'consistent-hashing': consistentHashingRaw,
   'ecommerce-platform': ecommerceRaw,
   'cdn-design': cdnRaw,
+  'social-media-feed': socialFeedRaw,
+  'real-time-chat': realTimeChatRaw,
+  'global-distributed': globalDistributedRaw,
 }
 
 export function getLessonContent(id: string): Lesson | null {

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, useRef, use } from 'react'
 import { notFound } from 'next/navigation'
+import confetti from 'canvas-confetti'
 import { TopBar } from '@/components/layout/TopBar'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { GuidedCanvas } from '@/components/canvas/GuidedCanvas'
@@ -17,12 +18,23 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
   const loadTemplate = useStore((s) => s.loadTemplate)
   const setLesson = useStore((s) => s.setLesson)
   const activeLesson = useStore((s) => s.activeLesson)
+  const currentStepIndex = useStore((s) => s.currentStepIndex)
+  const confettiFired = useRef(false)
 
   const meta = getLessonById(id)
   if (!meta) notFound()
 
   useEffect(() => {
     setLesson(id)
+    confettiFired.current = false
+
+    // Track last visited lesson for dashboard "Continue learning"
+    localStorage.setItem('scalecraft_progress', JSON.stringify({
+      id: meta.id,
+      title: meta.title,
+      difficulty: meta.difficulty,
+      durationMin: meta.durationMin,
+    }))
 
     const params = new URLSearchParams(window.location.search)
     const encoded = params.get('d')
@@ -35,6 +47,20 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
+  const totalSteps = activeLesson?.steps.length ?? 0
+  const isDone = totalSteps > 0 && currentStepIndex >= totalSteps
+
+  useEffect(() => {
+    if (isDone && !confettiFired.current) {
+      confettiFired.current = true
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ['#10b981', '#34d399', '#6ee7b7', '#fff'] })
+      setTimeout(() => {
+        confetti({ particleCount: 60, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#10b981', '#34d399'] })
+        confetti({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#10b981', '#34d399'] })
+      }, 300)
+    }
+  }, [isDone])
+
   const isInteractive = !!activeLesson
 
   return (
@@ -42,7 +68,9 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
       <TopBar
         lessonTitle={meta.title}
         isInteractive={isInteractive}
-        totalSteps={activeLesson?.steps.length ?? 0}
+        totalSteps={totalSteps}
+        difficulty={meta.difficulty}
+        durationMin={meta.durationMin}
         onShowGallery={() => setShowGallery(true)}
       />
 

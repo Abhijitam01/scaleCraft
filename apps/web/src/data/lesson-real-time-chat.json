@@ -1,0 +1,163 @@
+{
+  "id": "real-time-chat",
+  "title": "Design a Real-Time Chat System",
+  "description": "Build a messaging platform like WhatsApp or Slack. Learn WebSockets, presence detection, message ordering, and delivery guarantees.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add a WebSocket API Server",
+      "detail": "Drag an API Server onto the canvas. Chat clients maintain persistent connections to this server.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "client", "target": "api_server" },
+      "hint": "API Server is in the Compute section. Drag it onto the canvas, then draw a connection from Client → API Server to represent the WebSocket connection.",
+      "explanation": {
+        "what": "A long-lived WebSocket server that maintains persistent TCP connections with thousands of chat clients simultaneously. Unlike REST APIs (request/response), WebSocket enables bidirectional streaming — servers push messages to clients without polling.",
+        "why": "HTTP polling for new messages wastes bandwidth and adds latency. With polling every 500ms, you see messages up to 500ms late. WebSocket delivers messages in <50ms end-to-end because the channel is always open.",
+        "tradeoff": "Each open WebSocket connection consumes a file descriptor (FD) and ~50KB of RAM. A single server can hold ~10,000 concurrent connections (limited by OS FD limits and RAM). At 1M concurrent users, you need 100+ servers — and must route users on the same conversation to the same server (sticky sessions or message routing layer).",
+        "realWorld": "WhatsApp serves 2 billion users with a custom XMPP protocol over WebSocket. Each server handles 1-2M simultaneous connections (highly optimized Erlang). Slack uses WebSocket for real-time message delivery, falling back to SSE (Server-Sent Events) when WebSocket is blocked by corporate firewalls.",
+        "capacity": "Node.js WebSocket server: ~10k concurrent connections per process. Erlang/Go: 100k-1M connections per process. Memory per connection: 50-100KB. 100k connections = 5-10GB RAM per server."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Load Balancer with Sticky Sessions",
+      "detail": "Drag a Load Balancer and connect it from the client. WebSocket connections need consistent routing to the same server.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "client", "target": "load_balancer" },
+      "hint": "Load Balancer is in the Networking section. Drag it onto the canvas, then draw a connection from Client → Load Balancer to route WebSocket connections with sticky sessions.",
+      "explanation": {
+        "what": "Layer-7 load balancer configured with sticky sessions (also called session affinity) — all connections from a user are routed to the same backend WebSocket server. Without this, a user's messages could go to different servers with no shared state.",
+        "why": "WebSocket connections are stateful. Server A holds User X's connection. When User Y sends a message to User X, the message must be routed to Server A — or Server A must be notified to push to its connected client. Sticky sessions simplify routing when both users are on the same server.",
+        "tradeoff": "Sticky sessions reduce the LB's ability to rebalance load. If Server A has 10k connections and Server B has 2k, the LB can't easily move connections. Server failures cause all sticky clients to reconnect and reshuffle — brief message delivery outage.",
+        "realWorld": "Slack uses sticky load balancing via consistent hashing on user_id. Twitch's chat service (1M+ concurrent chatters per stream) uses a ring topology — each chat server handles a portion of the load, and the LB hashes stream_id to consistent servers.",
+        "capacity": "AWS ALB supports sticky sessions via cookies with configurable duration. HAProxy supports ip_hash and cookie-based stickiness. Budget for 20% overhead from imbalanced distribution with sticky sessions."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add a Presence and Session Cache",
+      "detail": "Drag a Cache (Redis) and connect it from the API Server. Track who is online and on which server.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "api_server", "target": "cache" },
+      "hint": "Cache is in the Storage section. Drag it onto the canvas, then connect API Server → Cache to track user presence and enable cross-server message routing.",
+      "explanation": {
+        "what": "Redis stores: (1) user online status (SETEX user:123:online 60 'server-A') with 60s TTL refreshed by heartbeats, (2) server-to-user mapping for cross-server message routing, (3) recent message history for newly connected clients, (4) typing indicators (ephemeral, 3s TTL).",
+        "why": "When User A (on Server 1) sends a message to User B (on Server 2), Server 1 must know User B is on Server 2. Redis pub/sub or the routing map enables this cross-server delivery. Without shared state, messages can only reach users connected to the same server.",
+        "tradeoff": "Redis pub/sub creates O(N servers) fan-out for broadcasts — every server subscribes to its users' channels. At 100 servers, each message publish triggers 100 Redis connections. Alternative: use Redis Cluster with sharding by user_id to reduce fan-out scope.",
+        "realWorld": "Slack stores user presence in Redis — 'last_seen' timestamp updated every 30 seconds. Discord uses Redis for 'typing indicator' events (3-second TTL keys). Twitch's presence system uses Redis Cluster with 6 shards to track 5M+ concurrent users across global servers.",
+        "capacity": "Redis Cluster (6 shards): 600k ops/sec. Presence key per user: ~100 bytes. 10M online users = 1GB RAM (negligible). Pub/sub throughput: 1M messages/sec. Typing indicator updates: high-frequency writes, use pipelining."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add a Message Queue for Reliable Delivery",
+      "detail": "Drag a Message Queue and connect it from the API Server. Ensure messages are delivered even when recipients are temporarily offline.",
+      "allowedNodeType": "message_queue",
+      "allowedEdge": { "source": "api_server", "target": "message_queue" },
+      "hint": "Message Queue is in the Messaging section. Drag it onto the canvas, then connect API Server → Message Queue to buffer messages for offline users.",
+      "explanation": {
+        "what": "Kafka or SQS queue that buffers messages for offline users, handles cross-datacenter replication, and feeds the message persistence pipeline. When a user is offline, undelivered messages queue until they reconnect.",
+        "why": "Without a queue, a message sent to an offline user is lost — the server has nowhere to deliver it. With a queue, messages persist until acknowledged. Delivery guarantee: at-least-once delivery ensures no message is dropped.",
+        "tradeoff": "At-least-once delivery can cause duplicate messages. Solution: assign unique message_id and deduplicate on the client (store last seen message_id per conversation). Message ordering: Kafka preserves order within a partition — partition by conversation_id for per-conversation ordering.",
+        "realWorld": "WhatsApp uses a custom XMPP store-and-forward mechanism for offline delivery. iMessage buffers undelivered messages on Apple's APNs servers for up to 30 days. Slack uses Kafka for audit log persistence and deferred delivery to mobile push notifications.",
+        "capacity": "Kafka: 1M+ messages/sec throughput. Message retention: 7-30 days (messages auto-expire after delivery confirmed). Partition count: start with conversation_count / 100 partitions. Consumer lag target: <100ms (nearly real-time)."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add Push Notification Workers",
+      "detail": "Drag a Worker and connect it from the Message Queue. Send push notifications to offline users' mobile devices.",
+      "allowedNodeType": "worker",
+      "allowedEdge": { "source": "message_queue", "target": "worker" },
+      "hint": "Worker is in the Compute section. Drag it onto the canvas, then connect Message Queue → Worker to send push notifications to offline users.",
+      "explanation": {
+        "what": "Background workers that consume undelivered message events from the queue. For users who are offline (not connected via WebSocket), workers call APNs (iOS), FCM (Android), or web push APIs to deliver notifications. Workers also handle read receipts and message status updates.",
+        "why": "Mobile users spend most of their time offline. Without push workers, messages are silently dropped. Push notifications are the only way to bring users back into the app when they receive a message while not actively using it.",
+        "tradeoff": "APNs and FCM have rate limits and can be slow (1-3s delivery latency). Push notification delivery is not guaranteed — devices may be off, users may have disabled notifications. The messaging system must handle both instant WebSocket delivery (online) and async push (offline) in parallel.",
+        "realWorld": "WhatsApp sends 100B+ messages/day — for offline delivery, they batch push notifications. Discord's push worker fleet processes 1M+ notifications/sec. Slack's push workers prioritize DMs over channel mentions over weekly digests via queue priority tiers.",
+        "capacity": "APNs: 200-300 notifications/sec per device (their throttle). Your worker throughput: 10k-50k notifications/sec. APNs/FCM connection pool: maintain persistent HTTP/2 connections. Worker count: scale to drain queue within 5 seconds of peak."
+      }
+    },
+    {
+      "id": "step-6",
+      "stepNumber": 6,
+      "instruction": "Add a Message History Database",
+      "detail": "Drag a Database and connect it from the API Server. Persist all messages for retrieval when users scroll back in history.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "hint": "Database is in the Storage section. Drag it onto the canvas, then connect API Server → Database to persist message history for scrollback.",
+      "explanation": {
+        "what": "Durable storage for all messages (write-once, read-many). Users scrolling chat history trigger paginated reads. Schema: (conversation_id, message_id, sender_id, content, timestamp). Message IDs are time-sorted UUIDs (UUIDv7 or Snowflake IDs) for efficient range queries.",
+        "why": "Redis cache is ephemeral — recent messages only. For history, you need durable storage. Chat history is high write volume (WhatsApp: 100B messages/day) with sporadic read patterns (users rarely scroll back). Cassandra's wide-column model is ideal: partition by conversation_id, cluster by message_id for fast range scans.",
+        "tradeoff": "Message content is write-once but must be deletable (GDPR, 'Delete for everyone' features). Soft deletes (set deleted_at flag) are common — but mean storage grows even for 'deleted' content. Cassandra makes physical deletes expensive (tombstones persist for gc_grace_seconds).",
+        "realWorld": "WhatsApp stores messages on-device, not servers (end-to-end encrypted). Telegram stores all messages on their servers (Cassandra-based) — 800M users, years of history. Discord switched from MongoDB to Cassandra for message history when they hit MongoDB's limits at 100M messages/day.",
+        "capacity": "Cassandra: 50k+ writes/sec per node. WhatsApp: 100B messages/day = 1.16M messages/sec. Average message: 1KB. Daily write volume: 100TB/day. Retention: 30 days → 3PB storage. S3 for archival after 30 days at $0.023/GB/month."
+      }
+    },
+    {
+      "id": "step-7",
+      "stepNumber": 7,
+      "instruction": "Add Monitoring",
+      "detail": "Drag a Monitoring node and connect it from the API Server. Track message delivery latency, WebSocket connection health, and queue depth.",
+      "allowedNodeType": "monitoring",
+      "allowedEdge": { "source": "api_server", "target": "monitoring" },
+      "hint": "Monitoring is in the Observability section. Drag it onto the canvas, then connect API Server → Monitoring to track message delivery latency and WebSocket health.",
+      "explanation": {
+        "what": "Observability for: message delivery latency (send → WebSocket push: target <50ms), WebSocket connection count per server, queue consumer lag (target: <100ms), message delivery success rate (target: 99.9%+), and push notification delivery rate.",
+        "why": "A message that appears 'sent' but doesn't arrive is a critical product failure — users switch apps. Monitoring delivery success rate and latency catches infrastructure failures (Redis down, queue lag) before users notice and complain.",
+        "tradeoff": "Per-message delivery tracking (was this specific message delivered?) requires storing delivery receipts — Cassandra write per message. At 1M messages/sec, that's 1M additional writes/sec. Aggregate metrics (delivery success rate, p99 latency) are cheaper but less granular.",
+        "realWorld": "Discord publishes their infrastructure metrics publicly — their goal is 99.999% message delivery reliability. Slack's SLO for message delivery: p99 < 1 second. WhatsApp's double-check mark system (sent → delivered → read) gives users explicit delivery receipts — all backed by database state changes.",
+        "capacity": "Target metrics: send-to-delivery p99 <50ms (online users), <3s (push notifications). WebSocket connection stability: reconnect rate <0.1%/hour. Queue consumer lag: <100ms. Alert on: delivery success rate <99.9%, queue lag >5 seconds, connection count drops >20%."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "User A is connected to Chat Server 1. User B is connected to Chat Server 2. A sends a message to B. How does Server 1 deliver it to Server 2?",
+        "options": [
+          { "id": "a", "text": "Server 1 queries the database, Server 2 polls the database" },
+          { "id": "b", "text": "Server 1 publishes to Redis pub/sub; Server 2 subscribes and pushes to User B's WebSocket" },
+          { "id": "c", "text": "User A must reconnect to Server 2" },
+          { "id": "d", "text": "The load balancer forwards the message between servers" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Redis pub/sub is the standard inter-server messaging pattern. Server 1 publishes to channel 'user:B'. Server 2 subscribes to 'user:B' (because User B is connected to it). Server 2 receives the event and pushes to User B's open WebSocket connection.",
+          "wrongAnswers": {
+            "a": "Database polling adds 500ms-5s latency per message — unacceptable for real-time chat. Also creates heavy read load on the database.",
+            "c": "Forcing users to reconnect to a specific server would break all active conversations whenever the server assignment changes.",
+            "d": "Layer-7 load balancers route TCP connections — they don't understand WebSocket message semantics or routing logic."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "WhatsApp delivers 100 billion messages per day. What database is best suited for storing message history?",
+        "options": [
+          { "id": "a", "text": "PostgreSQL with a single messages table" },
+          { "id": "b", "text": "Redis with message lists per conversation" },
+          { "id": "c", "text": "Cassandra with partition key = conversation_id" },
+          { "id": "d", "text": "MongoDB with one document per conversation" }
+        ],
+        "correctOptionId": "c",
+        "explanation": {
+          "correct": "Cassandra's wide-column model is ideal: partition_key = conversation_id (all messages in a conversation are co-located), clustering_key = message_id (time-sorted for fast range queries). Handles 50k+ writes/sec per node, scales linearly, and is write-optimized — exactly what 100B messages/day requires.",
+          "wrongAnswers": {
+            "a": "Single PostgreSQL table would hit write limits at >5k messages/sec. You'd need sharding, at which point you've reinvented Cassandra with more operational overhead.",
+            "b": "Redis is in-memory — 100B messages/day would exhaust RAM in hours. Redis is for recent messages and presence, not full history.",
+            "d": "MongoDB with one document per conversation creates documents with unbounded growth (millions of messages per conversation) and slow range queries. Discord switched away from MongoDB for exactly this reason."
+          }
+        }
+      }
+    ],
+    "passingScore": 1,
+    "totalQuestions": 2
+  }
+}

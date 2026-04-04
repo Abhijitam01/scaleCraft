@@ -7,45 +7,112 @@
       "id": "step-1",
       "stepNumber": 1,
       "instruction": "Add a Product Catalog Server",
-      "detail": "Drag an API Server onto the canvas. This handles product listings and searches.",
+      "detail": "Drag an API Server onto the canvas. This handles product listings, search, and inventory checks.",
       "allowedNodeType": "api_server",
       "allowedEdge": { "source": "client", "target": "api_server" },
+      "hint": "API Server is in the Compute section. Drag it onto the canvas, then draw a connection from Client → API Server.",
       "explanation": {
-        "what": "The server responsible for serving product details, categories, and inventory status.",
-        "why": "Separating the catalog from the checkout process (microservices) allows you to scale the read-heavy catalog independently of the write-heavy checkout.",
-        "tradeoff": "Increased complexity in managing inter-service communication and eventual consistency for inventory counts.",
-        "realWorld": "Amazon transitioned from a monolithic 'Obidos' backend to a service-oriented architecture in the early 2000s to solve exactly this.",
-        "capacity": "~200 RPS per instance for typical catalog browse operations."
+        "what": "The application layer serving product details, category browsing, and real-time inventory availability. Stateless and horizontally scalable — each request is independent.",
+        "why": "E-commerce has highly asymmetric read/write ratios. 95% of users browse without buying. Separating the catalog API from checkout allows you to scale reads independently — more servers during peak browse traffic, fewer during low-traffic periods.",
+        "tradeoff": "Stateless API servers are easy to scale but can't handle write-heavy operations like live inventory decrement without coordination. Over-relying on the API tier causes contention at the database layer.",
+        "realWorld": "Amazon's transformation from monolith to services (2002-2006) started with separating the product catalog. Their catalog service now handles 400M+ product listings across dozens of microservices. Shopify's checkout API is intentionally separate from their storefront API.",
+        "capacity": "Node.js API server: ~5k-20k RPS for catalog browsing. CPU-bound operations (search ranking) reduce this to ~2k RPS. Horizontal scaling: add servers behind a load balancer for near-linear throughput."
       }
     },
     {
       "id": "step-2",
       "stepNumber": 2,
       "instruction": "Add a Global CDN",
-      "detail": "Drag a CDN and connect it in front of your Catalog.",
+      "detail": "Drag a CDN and connect it from the client. Cache product pages and static assets at the edge.",
       "allowedNodeType": "cdn",
       "allowedEdge": { "source": "client", "target": "cdn" },
+      "hint": "CDN is in the Networking section. Drag it onto the canvas, then draw a connection from Client → CDN to cache product pages and assets at the edge.",
       "explanation": {
-        "what": "Caches static assets (images, CSS) and highly-read dynamic content (top-selling product pages) at the network edge.",
-        "why": "90% of e-commerce traffic is 'window shopping' (browsing). A CDN in Tokyo can serve a Japanese user in 10ms instead of 150ms round-trip to a US origin server.",
-        "tradeoff": "Cache invalidation lag. If you change a price, users might see the old price for a few minutes until the CDN cache expires.",
-        "realWorld": "Shopify uses Fastly and Cloudflare to handle massive spikes during flash sales for major brands.",
-        "capacity": "CDNs can absorb 95%+ of catalog traffic, reducing origin load by 20x."
+        "what": "Edge caching layer that serves product images, CSS, JavaScript, and semi-static product pages from servers geographically close to users. Cache-Control headers determine TTL for each asset type.",
+        "why": "90% of e-commerce visits are 'window shopping' — users browse but don't buy. A CDN absorbs this traffic at the edge, reducing origin load by 20x and improving page load times from 300ms to <20ms for cached assets.",
+        "tradeoff": "Cache invalidation lag: if you change a price and the CDN TTL is 5 minutes, users see the wrong price during that window. Use short TTLs (60s) for price/inventory data, long TTLs (24h+) for product images.",
+        "realWorld": "Shopify uses Fastly and Cloudflare to handle flash sale spikes for brands like Kylie Cosmetics — which sold $1M in 30 seconds in 2016. Their CDN absorbed 99%+ of that traffic. Amazon CloudFront serves 248 Tbps peak for Prime Day.",
+        "capacity": "CDN absorbs 90-95% of browse traffic. For a 50k RPS system, origin sees ~2.5k-5k RPS. Images cached for 24h+, category pages for 5min, prices for 60s, cart pages: never cache."
       }
     },
     {
       "id": "step-3",
       "stepNumber": 3,
       "instruction": "Add a Shopping Cart Cache",
-      "detail": "Drag a Cache (Redis) and connect it to your Catalog Server.",
+      "detail": "Drag a Cache (Redis) and connect it from the API Server. Store active carts and sessions in memory.",
       "allowedNodeType": "cache",
       "allowedEdge": { "source": "api_server", "target": "cache" },
+      "hint": "Cache is in the Storage section. Drag it onto the canvas, then connect API Server → Cache to store shopping carts and user sessions.",
       "explanation": {
-        "what": "In-memory storage for active user sessions and 'Added to Cart' items.",
-        "why": "Shopping carts are highly transient. Writing every 'Add to Cart' action to a primary SQL database creates massive write contention. Redis handles this with sub-millisecond latency.",
-        "tradeoff": "Data volatility. If Redis crashes without persistence enabled, users lose their carts. (Acceptable for most e-commerce).",
-        "realWorld": "eBay uses a massive distributed cache to handle the Billions of cart updates they see daily.",
-        "capacity": "Redis handles 100k+ operations per second on a single instance."
+        "what": "In-memory store for active user sessions, shopping carts, and recently viewed products. Redis's sub-millisecond latency makes it ideal for the write-heavy cart operations that happen during browsing.",
+        "why": "Writing every 'Add to Cart' action to a SQL database creates massive write contention during peak traffic. A cart might update 20 times during a shopping session — that's 20 DB writes per user. Redis handles this at 100k ops/sec per instance.",
+        "tradeoff": "Data volatility: if Redis crashes without persistence (AOF/RDB), users lose their carts. Acceptable for carts (rebuild is annoying but not catastrophic). Not acceptable for orders (must go to durable storage at checkout).",
+        "realWorld": "eBay processes billions of cart operations daily through a distributed Redis cache. Etsy uses Redis for session storage, handling 90M+ active sellers and buyers. Amazon's cart service uses a custom in-house store (Dynamo, the precursor to DynamoDB).",
+        "capacity": "Redis: 100k+ operations/sec on a single instance at <1ms p99. Cart data per user: ~500 bytes. 1M active carts = 500MB RAM — trivially fits on a single Redis instance."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add a Primary Database",
+      "detail": "Drag a Database and connect it from the API Server. Store product catalog, orders, and inventory.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "hint": "Database is in the Storage section. Drag it onto the canvas, then connect API Server → Database to persist product catalog, orders, and inventory.",
+      "explanation": {
+        "what": "Durable relational database (PostgreSQL/MySQL) storing product catalog, order history, user accounts, and authoritative inventory counts. ACID transactions ensure inventory decrements are atomic — two users can't buy the last item.",
+        "why": "Caches and CDN handle reads. The database is the source of truth for anything that must be consistent: inventory (can't oversell), orders (must not lose), pricing (must be accurate). ACID properties guarantee this.",
+        "tradeoff": "Database is the system's write bottleneck. At 5,000 concurrent users checking out simultaneously (Black Friday), write contention can cause 'deadlocks' on inventory rows. Solution: optimistic locking, inventory reservation service, or queue-based checkout.",
+        "realWorld": "Amazon's inventory system caused their famous 2002 outage — a single inventory database couldn't handle Black Friday load. Their solution (eventual consistency + reservation queue) became the inspiration for DynamoDB. Walmart Canada runs PostgreSQL sharded across 8 regions for their inventory system.",
+        "capacity": "PostgreSQL: ~2k-5k writes/sec for transactional workloads. Add read replicas for read scaling. For inventory at checkout: consider row-level locking or optimistic concurrency (version counter per inventory row)."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add an API Gateway",
+      "detail": "Drag an API Gateway and connect it from the client. This enforces rate limits and routes to the correct service.",
+      "allowedNodeType": "api_gateway",
+      "allowedEdge": { "source": "client", "target": "api_gateway" },
+      "hint": "API Gateway is in the Networking section. Drag it onto the canvas, then draw a connection from Client → API Gateway to enforce rate limits and route requests.",
+      "explanation": {
+        "what": "Entry point that handles authentication (JWT validation), rate limiting (prevent checkout spamming bots), request routing (checkout → checkout service, catalog → catalog service), and SSL termination.",
+        "why": "During Black Friday bot attacks, without a gateway, bots can overwhelm inventory checks — performing millions of 'buy' requests per second. The gateway rate-limits by IP, user ID, and session cookie before requests reach backend services.",
+        "tradeoff": "Gateway is a critical single point of failure — must run in active-active HA mode. Adding gateway increases request latency by 1-5ms. At very high scale, gateway itself becomes a bottleneck requiring horizontal scaling.",
+        "realWorld": "Shopify's Storefront API is fronted by a custom gateway that implements tenant-level rate limiting. During Kylie Jenner's launch, they blocked 90%+ of bot traffic at the gateway before it reached checkout. Kong and AWS API Gateway are used by thousands of e-commerce companies.",
+        "capacity": "AWS API Gateway: 10,000 RPS per region (configurable). Kong: 100k+ RPS on 8-core instance. Critical to co-locate gateway with your API servers to minimize added latency."
+      }
+    },
+    {
+      "id": "step-6",
+      "stepNumber": 6,
+      "instruction": "Add an Order Processing Queue",
+      "detail": "Drag a Message Queue and connect it from the API Server. Decouple order placement from fulfillment.",
+      "allowedNodeType": "message_queue",
+      "allowedEdge": { "source": "api_server", "target": "message_queue" },
+      "hint": "Message Queue is in the Messaging section. Drag it onto the canvas, then connect API Server → Message Queue to decouple order placement from fulfillment.",
+      "explanation": {
+        "what": "Durable message broker (Kafka, SQS, RabbitMQ) that holds confirmed orders for asynchronous downstream processing: inventory update, payment capture, warehouse notification, confirmation email, fraud check.",
+        "why": "If all post-order work happened synchronously, a slow fraud check (500ms) would make checkout feel slow. With a queue, checkout completes immediately after payment auth — everything else happens asynchronously without the user waiting.",
+        "tradeoff": "Order status becomes 'eventually consistent': order is 'accepted' before inventory is officially decremented. Race condition: two users might both receive 'checkout success' for the last item. Fix with inventory reservation (deduct at checkout, not at processing).",
+        "realWorld": "Amazon's checkout flow puts orders into SQS immediately after payment — the user gets a confirmation in <2 seconds while 12+ downstream systems process the order asynchronously. DoorDash processes order events through Kafka at 1M+ messages/sec during peak dinner hours.",
+        "capacity": "SQS: 10k-100k messages/sec. Kafka: 1M+ messages/sec with appropriate partitioning. SQS message retention: 14 days. Kafka: configurable, typically 7 days for order events."
+      }
+    },
+    {
+      "id": "step-7",
+      "stepNumber": 7,
+      "instruction": "Add Order Fulfillment Workers",
+      "detail": "Drag a Worker and connect it from the Message Queue. These process orders, send emails, and update inventory.",
+      "allowedNodeType": "worker",
+      "allowedEdge": { "source": "message_queue", "target": "worker" },
+      "hint": "Worker is in the Compute section. Drag it onto the canvas, then connect Message Queue → Worker to process orders, send emails, and update inventory.",
+      "explanation": {
+        "what": "Background processing services that consume order messages from the queue and execute: inventory decrement, warehouse order creation, payment capture finalization, fraud scoring, and shipping label generation.",
+        "why": "Workers can be scaled independently of the API tier. During a sale spike, you might run 100 workers to drain the order queue quickly. When traffic normalizes, scale back to 5 workers. This decoupling is what makes e-commerce systems reliable.",
+        "tradeoff": "Workers must be idempotent — if a worker crashes mid-processing, the message is retried. A non-idempotent worker could charge a customer twice. Solution: use database transactions with deduplication keys (order_id as idempotency key).",
+        "realWorld": "Shopify processes order fulfillment through Resque (Redis-backed job queue) and Kafka. During Black Friday 2023, they processed 4.2M orders — each triggering 8-12 downstream jobs. Their worker fleet auto-scaled to 10,000+ workers during peak 15-minute windows.",
+        "capacity": "Single worker: processes 50-200 orders/sec depending on downstream API latency. 10 workers: 500-2k orders/sec. Scale workers to match queue depth — target: queue fully drained within 30 seconds of peak."
       }
     }
   ],
@@ -55,23 +122,42 @@
         "id": "q1",
         "question": "What is the most critical component for handling a 50x surge in 'browsing' traffic during Black Friday?",
         "options": [
-          { "id": "a", "text": "More Database Replicas" },
+          { "id": "a", "text": "More Database Read Replicas" },
           { "id": "b", "text": "Content Delivery Network (CDN)" },
           { "id": "c", "text": "Auto-scaling API Servers" },
           { "id": "d", "text": "Larger Load Balancer" }
         ],
         "correctOptionId": "b",
         "explanation": {
-          "correct": "Browsing traffic is read-heavy and static-asset heavy. A CDN offloads the vast majority of this traffic at the edge, preventing it from ever hitting your servers.",
+          "correct": "Browsing traffic is read-heavy (product pages, images, CSS) and highly cacheable. A CDN absorbs 90-95% of this traffic at the edge, preventing 50x traffic from ever hitting your servers. Auto-scaling helps the remaining 5-10%.",
           "wrongAnswers": {
-            "a": "Database replicas help with dynamic reads, but CDN is more efficient for the majority of browsing traffic.",
-            "c": "API servers help but are more expensive and slower to scale than a CDN-hit.",
-            "d": "Load balancers distribute traffic but don't reduce the total work your servers must do."
+            "a": "Read replicas help with dynamic database reads, but CDN handles the majority of browsing traffic before it reaches the DB layer.",
+            "c": "Auto-scaling API servers is correct but slower (takes minutes) and more expensive than CDN edge caching (instant, cheaper).",
+            "d": "Load balancers distribute traffic that reaches your infrastructure — they don't reduce the total volume of work your servers must do."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "Two users simultaneously try to buy the last item in stock. How do you prevent both from succeeding?",
+        "options": [
+          { "id": "a", "text": "Check inventory in Redis before writing to the database" },
+          { "id": "b", "text": "Use a database transaction with SELECT FOR UPDATE on the inventory row" },
+          { "id": "c", "text": "Process checkouts one at a time to avoid concurrency" },
+          { "id": "d", "text": "Cache the inventory count with a 5-minute TTL" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "SELECT FOR UPDATE acquires a row-level lock on the inventory row inside a transaction. The second user's transaction waits for the first to commit. If count=0 after the first purchase, the second transaction rolls back and returns 'out of stock'. This is the standard ACID approach.",
+          "wrongAnswers": {
+            "a": "Redis check + DB write has a race condition (check-then-act is not atomic). Both users could read count=1 in Redis simultaneously before either writes.",
+            "c": "Serializing all checkouts globally would make checkout a bottleneck with 0 concurrency — catastrophically slow at scale.",
+            "d": "A 5-minute stale cache would let you oversell up to 5 minutes of orders worth of inventory — terrible for a limited-stock item."
           }
         }
       }
     ],
     "passingScore": 1,
-    "totalQuestions": 1
+    "totalQuestions": 2
   }
 }

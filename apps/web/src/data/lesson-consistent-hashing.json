@@ -6,46 +6,81 @@
     {
       "id": "step-1",
       "stepNumber": 1,
-      "instruction": "Add a Distributed Database Cluster",
-      "detail": "Drag the first Database node onto the canvas.",
-      "allowedNodeType": "database",
-      "allowedEdge": { "source": "api_server", "target": "database" },
+      "instruction": "Add an API Server",
+      "detail": "Drag an API Server onto the canvas. This is the service that needs to route data to the correct shard.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "client", "target": "api_server" },
+      "hint": "API Server is in the Compute section. Drag it onto the canvas, then draw a connection from Client → API Server.",
       "explanation": {
-        "what": "The primary storage for your sharded data.",
-        "why": "When your data no longer fits on one server, you must partition it across many.",
-        "tradeoff": "More servers means higher management complexity and potential for partial failure.",
-        "realWorld": "DynamoDB uses this at its core to shard trillions of items across thousands of nodes.",
-        "capacity": "Horizontal scaling: No theoretical limit on storage."
+        "what": "The application layer that knows how to compute consistent hash keys and route requests to the correct shard in the ring. Every write and read must go to the exact node that 'owns' that key.",
+        "why": "Without a consistent hash routing layer, your API would need to know every shard's range explicitly. Consistent hashing lets you add or remove shards without updating routing tables on every other node.",
+        "tradeoff": "The API server holds the ring topology in memory (or fetches from a coordination service like ZooKeeper). Ring membership changes must propagate before routing is updated — brief window of stale routing is possible.",
+        "realWorld": "DynamoDB's internal coordinator routes requests using consistent hashing before clients ever see a response. Cassandra clients embed the ring topology directly — each driver knows which node owns a partition key without a coordinator hop.",
+        "capacity": "API server with hash routing adds <0.1ms overhead per request. Ring lookup is O(log N) with a sorted array of virtual node positions."
       }
     },
     {
       "id": "step-2",
       "stepNumber": 2,
-      "instruction": "Add a Second Database Node",
-      "detail": "Drag another Database node to expand the cluster.",
-      "allowedNodeType": "database",
-      "allowedEdge": { "source": "api_server", "target": "database" },
+      "instruction": "Add the Hash Ring Coordinator",
+      "detail": "Drag a Load Balancer to represent the consistent hash ring manager. Connect it from the API Server.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "api_server", "target": "load_balancer" },
+      "hint": "Load Balancer is in the Networking section. Drag it onto the canvas, then connect API Server → Load Balancer to represent the hash ring coordinator.",
       "explanation": {
-        "what": "Expanding the cluster to increase throughput and storage capacity.",
-        "why": "Consistent hashing ensures that when you add this node, only ~1/N of the data moves.",
-        "tradeoff": "Resharding data while the system is under load can impact latency.",
-        "realWorld": "Cassandra nodes join and leave the ring without downtime using gossip and consistent hashing.",
-        "capacity": "Scales read/write IOPS linearly."
+        "what": "The routing layer that maps hash values to physical nodes. Maintains the ring data structure — a sorted array of virtual node positions. For each key, binary search finds the next clockwise node on the ring.",
+        "why": "With simple modulo hashing (key % N), adding one node changes the target for nearly every key — ~80% remapping for going from 4 to 5 nodes. Consistent hashing moves only 1/N keys when a node is added — just 20% for 5 nodes.",
+        "tradeoff": "The coordinator is a stateful component. If it loses ring membership state, requests may route to wrong nodes. Must persist ring state to durable storage and replicate coordinator for HA.",
+        "realWorld": "Apache Cassandra uses a coordinator pattern where each node knows the full ring. Discord's message cluster uses consistent hashing to route messages to the correct storage node with zero resharding cost when adding capacity.",
+        "capacity": "Ring lookup: O(log N) with binary search over sorted virtual node array. Routing overhead: <0.5ms. Virtual nodes (vnodes) per physical node: typically 256 to ensure balanced distribution."
       }
     },
     {
       "id": "step-3",
       "stepNumber": 3,
-      "instruction": "Add Virtual Nodes",
-      "detail": "Connect a Load Balancer to act as the hash ring manager.",
-      "allowedNodeType": "load_balancer",
-      "allowedEdge": { "source": "client", "target": "load_balancer" },
+      "instruction": "Add the Primary Database Shard",
+      "detail": "Drag a Database and connect it from the Load Balancer. This represents shard 1 on the hash ring.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "load_balancer", "target": "database" },
+      "hint": "Database is in the Storage section. Drag it onto the canvas, then connect Load Balancer → Database to represent the first shard on the hash ring.",
       "explanation": {
-        "what": "Management layer that maps virtual positions on the hash ring to physical nodes.",
-        "why": "Physical nodes aren't always identical. Virtual nodes (tokens) ensure a balanced distribution of data even when hardware is heterogeneous.",
-        "tradeoff": "Higher metadata overhead for the hash ring mapping.",
-        "realWorld": "Discord's message storage uses a ring with thousands of virtual nodes to prevent hot spots.",
-        "capacity": "Enables micro-sharding at massive scale."
+        "what": "The first physical node on the hash ring. It owns a contiguous arc of hash space — roughly 1/N of the total key space when virtual nodes are evenly distributed. All keys that hash to this arc are stored here.",
+        "why": "Horizontal partitioning (sharding) is the only way to scale writes beyond what a single machine can handle. At Twitter scale (6,000 writes/sec), no single PostgreSQL instance can keep up — you need multiple shards.",
+        "tradeoff": "'Hot spots' occur when some keys are accessed far more than others (celebrity accounts on Twitter). Consistent hashing distributes keys, not access patterns. You may still need separate hot-key handling (Redis cache in front).",
+        "realWorld": "DynamoDB splits key space across thousands of storage nodes using consistent hashing. A single DynamoDB table can scale to 40,000 read/write capacity units — impossible without partitioning. Instagram's user database is sharded across dozens of PostgreSQL nodes.",
+        "capacity": "Single PostgreSQL shard: 5,000 reads/sec, 2,000 writes/sec. With 10 shards: 50k reads/sec, 20k writes/sec — linear scaling when load is evenly distributed."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add a Read Replica for the Shard",
+      "detail": "Drag a Read Replica and connect it from the Database. Each shard can have replicas for fault tolerance.",
+      "allowedNodeType": "read_replica",
+      "allowedEdge": { "source": "database", "target": "read_replica" },
+      "hint": "Read Replica is in the Storage section. Drag it onto the canvas, then connect Database → Read Replica to set up fault-tolerant replication for the shard.",
+      "explanation": {
+        "what": "A synchronous or asynchronous replica of the primary shard. In distributed systems using consistent hashing (Cassandra, DynamoDB), replicas own the same hash range as the primary and provide both fault tolerance and read scaling.",
+        "why": "If a shard node fails without a replica, data in that arc of the ring is lost or inaccessible. Cassandra's replication factor of 3 means 3 nodes own each key — you can lose 2 before losing data.",
+        "tradeoff": "Replication introduces write latency (waiting for N of R replicas to acknowledge). Strong consistency (all replicas) = higher latency. Eventual consistency (quorum or async) = lower latency but possible stale reads.",
+        "realWorld": "Cassandra with replication_factor=3 writes to 3 nodes per key. Netflix runs Cassandra at RF=3 — losing an entire availability zone doesn't impact reads. DynamoDB automatically maintains 3 replicas per shard across AZs.",
+        "capacity": "RF=3: survive 2 node failures per ring segment. Quorum reads/writes (RF/2+1 = 2 of 3): balance between consistency and availability. Read throughput: 3x the primary shard's capacity when all replicas serve reads."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add a Cache for Hot Keys",
+      "detail": "Drag a Cache and connect it from the API Server. Prevent hot keys from overloading specific shards.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "api_server", "target": "cache" },
+      "hint": "Cache is in the Storage section. Drag it onto the canvas, then connect API Server → Cache to intercept hot key reads before they reach the hash ring.",
+      "explanation": {
+        "what": "An in-memory cache (Redis/Memcached) that sits in front of the hash ring to absorb reads for frequently accessed keys. When consistent hashing places a celebrity's account data on shard 3, all celebrity reads hit shard 3 — the cache prevents this.",
+        "why": "Consistent hashing distributes keys evenly, not access patterns. A viral tweet's author may be on shard 7, causing 10,000 reads/sec to hit shard 7 while others sit idle. Cache intercepts these 'hot keys' before they reach the ring.",
+        "tradeoff": "Cache must be invalidated when the underlying data changes. In a consistent hashing system where writes go directly to the ring, cache invalidation requires coordination between write path and cache layer. Common solution: cache-aside pattern with short TTL (1-30 seconds).",
+        "realWorld": "Twitter identified ~3,000 'hot' user accounts that drove disproportionate read traffic. They added a special cache tier just for these accounts — consistent hashing handles the long tail, cache handles the hot head. Facebook's Memcached fleet serves 1 billion requests per second to shield MySQL.",
+        "capacity": "Redis: 100k+ reads/sec per instance. Cache hit rates of 95%+ reduce ring traffic to 5% of total reads. For 500k reads/sec: cache absorbs 475k, ring sees only 25k — shards stay healthy."
       }
     }
   ],
@@ -53,25 +88,44 @@
     "questions": [
       {
         "id": "q1",
-        "question": "If you have 4 nodes and add 1 more using 'mod n' hashing (not consistent), how much data needs to be moved?",
+        "question": "You have 4 nodes using simple modulo hashing (key % 4). You add a 5th node. Approximately what fraction of all keys must be remapped to new nodes?",
         "options": [
-          { "id": "a", "text": "20%" },
-          { "id": "b", "text": "50%" },
-          { "id": "c", "text": "Nearly 100%" },
-          { "id": "d", "text": "0%" }
+          { "id": "a", "text": "~20% — only the new node's share" },
+          { "id": "b", "text": "~50% — half the keys change" },
+          { "id": "c", "text": "~80% — nearly all keys change" },
+          { "id": "d", "text": "0% — modulo hashing is consistent" }
         ],
         "correctOptionId": "c",
         "explanation": {
-          "correct": "With simple 'mod n' hashing, the target node for almost every key changes when N increases. This is why consistent hashing is crucial.",
+          "correct": "With key % N, every key's target node is determined by N. Changing N from 4 to 5 changes the result for (N-1)/N ≈ 80% of all keys. This is catastrophic — you must move 80% of your data during the scale-up event.",
           "wrongAnswers": {
-            "a": "20% would be the ideal case (consistent hashing).",
-            "b": "Too optimistic for 'mod n'.",
-            "d": "Impossible with any hashing change."
+            "a": "20% would be the ideal case — what consistent hashing achieves. Only the new node's ~1/N share moves.",
+            "b": "50% would occur with certain hash function properties but not typical modulo arithmetic.",
+            "d": "Modulo hashing is the opposite of consistent — it's highly sensitive to changes in N."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "What is the purpose of 'virtual nodes' (vnodes) in consistent hashing?",
+        "options": [
+          { "id": "a", "text": "To create backup copies of data" },
+          { "id": "b", "text": "To ensure balanced key distribution even with heterogeneous hardware" },
+          { "id": "c", "text": "To speed up hash computation" },
+          { "id": "d", "text": "To reduce network bandwidth between nodes" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Each physical node is assigned multiple positions (vnodes) on the ring — typically 256. With a small number of physical nodes, direct placement can be uneven. Vnodes average out the distribution: each physical node owns 256 arcs, ensuring ~equal key space regardless of where they fall on the ring.",
+          "wrongAnswers": {
+            "a": "Virtual nodes are routing positions, not data replicas. Replication is a separate concern (RF=3 in Cassandra).",
+            "c": "Hash computation speed is independent of vnode count. MD5/SHA1 are used regardless.",
+            "d": "Vnodes affect key routing, not network topology or bandwidth usage."
           }
         }
       }
     ],
     "passingScore": 1,
-    "totalQuestions": 1
+    "totalQuestions": 2
   }
 }

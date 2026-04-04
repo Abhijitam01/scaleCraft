@@ -1,0 +1,198 @@
+{
+  "id": "global-distributed",
+  "title": "Build a Global Distributed System",
+  "description": "Achieve 99.99% uptime across continents. Learn multi-region replication, global routing, and how to survive datacenter failures.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add a Global Load Balancer",
+      "detail": "Drag a Load Balancer onto the canvas. This routes users to the nearest regional datacenter using Anycast or GeoDNS.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "client", "target": "load_balancer" },
+      "hint": "Load Balancer is in the Networking section. Drag it onto the canvas, then draw a connection from Client → Load Balancer to represent global traffic routing.",
+      "explanation": {
+        "what": "A global traffic manager (AWS Route 53, Cloudflare Load Balancing, GCP Global LB) that uses GeoDNS or Anycast to route users to the closest healthy regional datacenter. Unlike a regional LB, this operates at the DNS level across continents.",
+        "why": "Speed of light limits how fast data can travel. New York to London is 70ms round-trip minimum. A user in London hitting a US-East server experiences 140ms+ per round-trip. A London regional datacenter brings this to <5ms. Latency matters: 100ms increase in page load = 1% revenue drop for e-commerce.",
+        "tradeoff": "GeoDNS has TTL-based failover (60-300 seconds). If a region goes down, users may be routed there for up to 5 minutes until DNS TTL expires. Anycast fails over faster (BGP reconvergence: 30-90 seconds) but is only viable at large scale (you need your own ASN and IP space).",
+        "realWorld": "Cloudflare operates in 310+ cities using Anycast — every IP they announce is reachable from every PoP. AWS Route 53 latency-based routing serves 100M+ DNS queries/day. Netflix uses their own global traffic management layer on top of AWS to route between 3 regions: US-East, EU-West, AP-Southeast.",
+        "capacity": "GeoDNS TTL: typically 60s for fast failover. Route 53 health checks: every 30s. Anycast BGP reconvergence: 30-90s. Target: zero cross-continental requests after steady state."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a CDN Layer",
+      "detail": "Drag a CDN and connect it from the Load Balancer. Cache static and semi-static content at the edge closest to each user.",
+      "allowedNodeType": "cdn",
+      "allowedEdge": { "source": "load_balancer", "target": "cdn" },
+      "hint": "CDN is in the Networking section. Drag it onto the canvas, then connect Load Balancer → CDN to cache content at edge nodes worldwide.",
+      "explanation": {
+        "what": "A globally distributed cache of 300+ PoPs that serves static assets (JS, CSS, images) and increasingly dynamic content (personalized pages with Edge compute). CDN sits between users and your origin infrastructure.",
+        "why": "Even with regional datacenters, serving from origin for every request wastes capacity. A CDN absorbs 85-95% of all traffic at the edge — your origin handles only cache misses. At Netflix scale, this means serving petabytes of video from nearby edge nodes rather than transcontinental streams.",
+        "tradeoff": "CDN adds operational complexity: cache invalidation must be coordinated globally. A bad deployment can be 'baked in' across 300 PoPs until TTLs expire. Instant purge APIs exist (Cloudflare: <150ms global purge) but cost extra and have rate limits.",
+        "realWorld": "Fastly's global network serves 10% of all internet traffic. Cloudflare blocked a 71 million RPS DDoS attack in 2023 — entirely at the edge, without a single packet reaching origin. Netflix's Open Connect CDN (ISP-embedded appliances) serves 15+ petabytes/day with 99%+ cache hit rates.",
+        "capacity": "CDN cache hit target: 85%+ for mixed workloads, 99%+ for static assets. Single CDN PoP bandwidth: 50-100 Gbps. Cloudflare total capacity: 100+ Tbps. CDN reduces origin load by 10-20x."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add a Regional API Server",
+      "detail": "Drag an API Server and connect it from the CDN. Cache misses and dynamic requests are processed by this regional server.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "cdn", "target": "api_server" },
+      "hint": "API Server is in the Compute section. Drag it onto the canvas, then connect CDN → API Server so cache misses reach your regional application tier.",
+      "explanation": {
+        "what": "Stateless application servers in a specific region (e.g., us-east-1) that handle cache misses and all write operations. Each region has its own independent API tier. Requests that hit the CDN's edge and miss the cache are forwarded here.",
+        "why": "Dynamic content (user-specific data, write operations, real-time queries) cannot be served from CDN cache. These requests must reach a regional API server. By keeping the API server in the same region as the user, you eliminate intercontinental latency for dynamic requests.",
+        "tradeoff": "Stateless servers are easy to scale but require shared state (databases, caches) to be regional too. If your database is in US-East and API servers are in EU-West, you've eliminated API latency but kept database latency. Every component in the hot path must be regional.",
+        "realWorld": "Stripe runs independent API stacks in 3 regions: US, EU, and Asia. Each region can process payments independently. A US datacenter failure doesn't affect EU payments. Shopify operates multi-region with primary/secondary switchover — their API tier is fully replicated across regions.",
+        "capacity": "Regional API tier sized for 100% of that region's traffic (no cross-region dependency at steady state). Horizontal scale: 10-100+ servers per region depending on traffic. Deploy to 3+ regions for 99.99% availability."
+      }
+    },
+    {
+      "id": "step-4",
+      "stepNumber": 4,
+      "instruction": "Add a Regional Cache",
+      "detail": "Drag a Cache (Redis) and connect it from the API Server. Each region has its own Redis cluster for session data and read acceleration.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "api_server", "target": "cache" },
+      "hint": "Cache is in the Storage section. Drag it onto the canvas, then connect API Server → Cache to add a regional Redis cluster for fast local reads.",
+      "explanation": {
+        "what": "Regional Redis cluster that caches user sessions, frequently read objects, and computed aggregates. Physically co-located with the API servers in the same region — round-trip latency is <1ms vs 150ms+ for cross-continental cache access.",
+        "why": "A global cache in a single region defeats the purpose of multi-region. If users in Tokyo query a cache in Virginia, you've added 150ms of cache latency — slower than some database queries. Each region needs its own cache to achieve sub-millisecond reads.",
+        "tradeoff": "Regional cache consistency: when user data is written in US-East (primary region), the EU-West cache still has stale data. Solutions: (1) short TTL (60s), accept briefly stale reads; (2) write-through to all regional caches on every write (expensive); (3) cache only immutable data globally.",
+        "realWorld": "Twitter deploys Redis clusters in each of their 3 primary regions. User timeline caches are populated regionally from the nearest database replica. Facebook's Memcached fleet (2B+ requests/sec) runs in every datacenter independently — cross-DC cache misses fall through to local MySQL replicas.",
+        "capacity": "Regional Redis cluster: 100k+ ops/sec, <1ms p99. Cache hit target: 85%+ for dynamic content within a region. Cache size per region: sized for 24-48 hours of hot data. Eviction policy: LRU (least recently used)."
+      }
+    },
+    {
+      "id": "step-5",
+      "stepNumber": 5,
+      "instruction": "Add a Primary Database",
+      "detail": "Drag a Database and connect it from the API Server. This is your primary write region — all writes go here first.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "hint": "Database is in the Storage section. Drag it onto the canvas, then connect API Server → Database to establish your primary write region.",
+      "explanation": {
+        "what": "The primary (leader) database for your system, located in your busiest region (typically US-East for most companies). All write operations globally are routed to this region. Reads can be served locally from replicas in each region.",
+        "why": "Distributed writes (accepting writes in multiple regions simultaneously) require distributed consensus — protocols like Paxos or Raft add 2x latency overhead. Most applications choose single-primary writes for simplicity: one region accepts writes, others replicate asynchronously.",
+        "tradeoff": "Single-primary write creates cross-region write latency. A user in Tokyo writing data must wait for the round trip to US-East (150ms+). For most applications (social feeds, e-commerce) this is acceptable. For latency-sensitive writes (payments, real-time gaming) consider multi-master with conflict resolution.",
+        "realWorld": "GitHub's primary PostgreSQL database is in US-East-1. All 'git push' operations globally route writes there, then replicate to 2 standby regions. Their average write latency for global users: 180ms — acceptable because reads (99% of operations) are served locally. Notion uses a single-primary Postgres with read replicas per region.",
+        "capacity": "Single primary: 5k-20k write TPS. Add primary-side connection pooler (PgBouncer) to handle concurrent connections. Replication lag to secondary regions: 50-200ms depending on network. Monitor: replications lag alert if >500ms."
+      }
+    },
+    {
+      "id": "step-6",
+      "stepNumber": 6,
+      "instruction": "Add a Read Replica",
+      "detail": "Drag a Read Replica and connect it from the Database. Deploy replicas in each region to serve local reads without cross-continental queries.",
+      "allowedNodeType": "read_replica",
+      "allowedEdge": { "source": "database", "target": "read_replica" },
+      "hint": "Read Replica is in the Storage section. Drag it onto the canvas, then connect Database → Read Replica to serve regional read traffic without cross-continental latency.",
+      "explanation": {
+        "what": "PostgreSQL streaming replicas (or equivalent) deployed in each region that receive all writes from the primary via WAL (Write-Ahead Log) replication. API servers in EU-West query their local EU-West replica — no cross-Atlantic queries needed for reads.",
+        "why": "99% of web traffic is reads. Routing EU reads to a US database adds 140ms to every request. A regional replica eliminates this. The 1% of writes that go cross-continental are acceptable latency because writes happen less frequently.",
+        "tradeoff": "Replication lag: regional replicas are 50-200ms behind the primary. A user who just wrote data may see their own write as 'missing' if their next request hits a regional replica before replication completes. Fix: use 'read-after-write consistency' — route the same user's reads to primary for 1-2s after any write operation.",
+        "realWorld": "Cloudflare's D1 database (SQLite-based) replicates to 200+ PoPs globally with <100ms replication lag. Users read from the nearest replica, writes go to primary. Discord's message database has per-datacenter Cassandra clusters that replicate with configurable consistency (LOCAL_QUORUM for reads — no cross-DC quorum needed).",
+        "capacity": "Each regional replica adds ~5-20k reads/sec capacity. 3 regions × 5k reads/sec = 15k global read capacity. Replication lag target: <100ms for real-time data, <1s acceptable for analytics. Monitor with pg_stat_replication.write_lag."
+      }
+    },
+    {
+      "id": "step-7",
+      "stepNumber": 7,
+      "instruction": "Add a Message Queue for Cross-Region Events",
+      "detail": "Drag a Message Queue and connect it from the API Server. Propagate events across regions asynchronously without tight coupling.",
+      "allowedNodeType": "message_queue",
+      "allowedEdge": { "source": "api_server", "target": "message_queue" },
+      "hint": "Message Queue is in the Messaging section. Drag it onto the canvas, then connect API Server → Message Queue to propagate events between regions asynchronously.",
+      "explanation": {
+        "what": "A globally replicated message bus (Kafka MirrorMaker, Confluent Cloud, AWS EventBridge Global Endpoints) that fans out events from the primary region to all other regions. Enables eventual consistency across regions without synchronous cross-region calls.",
+        "why": "Database replication handles data sync. But application events (user signed up, order placed, video uploaded) often need to trigger processing in multiple regions simultaneously. A queue decouples cross-region communication: primary region publishes events, each region consumes independently.",
+        "tradeoff": "Cross-region Kafka replication adds 50-200ms event lag. Consumers in remote regions see events 'eventually.' For most notifications and background jobs this is fine. For operations requiring immediate global consistency (fraud detection, inventory), synchronous cross-region calls or global databases (Spanner, CockroachDB) are needed.",
+        "realWorld": "Stripe uses Kafka with cross-region replication for their payment event stream. Each regional datacenter has a Kafka cluster; MirrorMaker2 replicates topics across regions. Netflix's Keystone pipeline processes 2.4 trillion events per day — cross-region replication ensures EU servers have full event history. Shopify uses Kafka for global inventory events.",
+        "capacity": "Kafka MirrorMaker2 throughput: 1-10 Gbps cross-region replication. Replication lag: 50-200ms. Partition by region_id for regional ordering guarantees. Each regional consumer group processes independently — a slow consumer in APAC doesn't slow EU."
+      }
+    },
+    {
+      "id": "step-8",
+      "stepNumber": 8,
+      "instruction": "Add Monitoring",
+      "detail": "Drag a Monitoring node and connect it from the API Server. Track cross-region replication lag, regional latency, and failover readiness.",
+      "allowedNodeType": "monitoring",
+      "allowedEdge": { "source": "api_server", "target": "monitoring" },
+      "hint": "Monitoring is in the Observability section. Drag it onto the canvas, then connect API Server → Monitoring to track global health, replication lag, and failover readiness.",
+      "explanation": {
+        "what": "Global observability stack tracking: per-region p99 latency, database replication lag per region, error rates per region (allows pinpointing regional incidents), cross-region Kafka consumer lag, and synthetic health checks from each region.",
+        "why": "Global systems fail in regional patterns. A database replica lag spike in EU-West might indicate network degradation between US-East and EU. Without per-region metrics, this looks like random latency increases. Regional breakdown lets you detect and isolate incidents faster.",
+        "tradeoff": "Global monitoring requires aggregating metrics from all regions into a central observability platform (Datadog, Grafana Cloud). This adds cost and the monitoring system itself must be resilient — if your single monitoring cluster is in US-East and US-East goes down, you're flying blind during the incident you need to see most.",
+        "realWorld": "GitHub's status page (githubstatus.com) publishes per-region incident data in real-time. They run synthetic checks from 10+ global locations every 30 seconds. AWS CloudWatch with cross-account multi-region dashboards is how most AWS-native companies achieve global observability. Grafana Cloud runs in 3 regions for monitoring HA.",
+        "capacity": "SLO targets: p99 latency <100ms per region, database replication lag <200ms, error rate <0.1%. 99.99% uptime = 52 minutes downtime/year. Achieve with: 3 regions + automated failover + health checks. Alert on: replication lag >500ms, error rate >0.5%, or any region p99 >500ms."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "Your database primary is in US-East. A user in Tokyo writes data. Another user in Tokyo reads that same data 50ms later. What might they see?",
+        "options": [
+          { "id": "a", "text": "The updated data — replicas sync instantly" },
+          { "id": "b", "text": "The old data — the write hasn't replicated to the APAC replica yet" },
+          { "id": "c", "text": "An error — cross-region reads are not allowed" },
+          { "id": "d", "text": "A 503 — the APAC replica is read-only" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Cross-region replication is asynchronous. The write went to US-East (150ms round-trip from Tokyo). 50ms after the write, replication may not have completed. The APAC replica could be 100-300ms behind. The second user sees stale data. This is 'eventual consistency.' Fix: route the write author's reads to the primary for 1-2s after a write.",
+          "wrongAnswers": {
+            "a": "Synchronous cross-region replication would add 300ms+ to every write (round-trip to all regions). No major system does this for all writes — it's too slow.",
+            "c": "Cross-region reads are fully supported — regional replicas exist specifically to serve reads. The issue is freshness, not access.",
+            "d": "Read replicas are intentionally read-only, but this isn't an error condition. The replica responds normally, just potentially with stale data."
+          }
+        }
+      },
+      {
+        "id": "q2",
+        "question": "What does 99.99% uptime allow per year?",
+        "options": [
+          { "id": "a", "text": "8.7 hours downtime" },
+          { "id": "b", "text": "52 minutes downtime" },
+          { "id": "c", "text": "5 minutes downtime" },
+          { "id": "d", "text": "87 hours downtime" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "99.99% = 0.01% downtime. 0.01% of 525,600 minutes/year = 52.56 minutes. This is the '4 nines' SLO. Achieving it requires multi-region active-active or active-passive with automated failover. Single-region systems typically achieve 99.9% (8.7 hours/year) at best.",
+          "wrongAnswers": {
+            "a": "8.7 hours/year = 99.9% uptime (3 nines). Achievable with single-region redundancy. Not 99.99%.",
+            "c": "5 minutes/year would be 99.999% (5 nines) — the level Stripe and AWS core services target. Extremely difficult, requires global redundancy with sub-second failover.",
+            "d": "87 hours/year = 99% uptime (2 nines). This is typical for systems without redundancy — a single maintenance window or incident consumes the entire budget."
+          }
+        }
+      },
+      {
+        "id": "q3",
+        "question": "You have 3 regions: US-East, EU-West, APAC. Your primary database is in US-East. It goes down. What happens to writes from EU and APAC users?",
+        "options": [
+          { "id": "a", "text": "Writes continue on the regional replicas automatically" },
+          { "id": "b", "text": "Writes fail until the primary recovers or a new primary is promoted" },
+          { "id": "c", "text": "Writes queue in the message queue and replay when primary recovers" },
+          { "id": "d", "text": "The CDN handles writes temporarily" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Read replicas are read-only by design. They cannot accept writes. When the primary fails, a failover must promote one replica to primary (RDS Multi-AZ: ~60s, manual failover: 5-30min). During this window, writes globally fail. This is why 99.99% SLOs require fast automated failover — every minute of write downtime costs real revenue.",
+          "wrongAnswers": {
+            "a": "Replicas becoming writable automatically creates a split-brain scenario — multiple nodes accepting writes with no coordination. This causes data corruption. Promotion to primary requires deliberate failover with the old primary fenced off.",
+            "c": "The message queue stores application events, not raw database writes. If the application layer returns errors, users don't get success responses — they can't silently queue failed writes without users noticing.",
+            "d": "CDNs cache reads. They have no write path to your database. A CDN absorbing writes is architecturally impossible — it would require the CDN to become a primary database."
+          }
+        }
+      }
+    ],
+    "passingScore": 2,
+    "totalQuestions": 3
+  }
+}

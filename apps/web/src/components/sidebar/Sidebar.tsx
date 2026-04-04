@@ -1,10 +1,11 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '@/lib/store'
 import { C, NODE_META } from '@/lib/tokens'
 import { ComponentCard } from '@/components/sidebar/ComponentCard'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Info, ShieldAlert, Globe, Zap, CheckCircle2 } from 'lucide-react'
+import { Info, ShieldAlert, Globe, Zap, CheckCircle2, HelpCircle } from 'lucide-react'
 
 // Node categories for palette grouping
 const PALETTE_CATEGORIES = [
@@ -85,12 +86,32 @@ export function Sidebar({ className }: { className?: string }) {
   const currentStepIndex = useStore(s => s.currentStepIndex)
   const nodes = useStore(s => s.nodes)
   const activeLesson = useStore(s => s.activeLesson)
-  
+  const hintsShown = useStore(s => s.hintsShown)
+  const showHint = useStore(s => s.showHint)
+
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const timerRef = useRef<NodeJS.Timeout>(undefined)
+
+  const step = activeLesson?.steps[currentStepIndex]
+
+  useEffect(() => {
+    setElapsedSeconds(0)
+    clearInterval(timerRef.current)
+    if (!step || hintsShown.has(step.id)) return
+
+    timerRef.current = setInterval(() => {
+      setElapsedSeconds(s => s + 1)
+    }, 1000)
+
+    return () => clearInterval(timerRef.current)
+  }, [step?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!activeLesson) return null
 
   const isDone = currentStepIndex >= activeLesson.steps.length
-  const step = activeLesson.steps[currentStepIndex]
   const placedNodeIds = new Set(nodes.map((n) => n.data.nodeId))
+  const showHintButton = !!step && !hintsShown.has(step.id) && elapsedSeconds >= 60
+  const hintRevealed = !!step && hintsShown.has(step.id)
 
   return (
     <div className={`flex flex-col p-4 gap-4 overflow-y-auto ${className}`} style={{ background: '#0d0d0d' }}>
@@ -127,6 +148,34 @@ export function Sidebar({ className }: { className?: string }) {
                   {step.detail}
                 </div>
               </div>
+
+              {/* Hint system */}
+              <AnimatePresence>
+                {hintRevealed && step.hint && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="rounded-[8px] px-3 py-2.5 border text-[11px] leading-[1.5]"
+                    style={{ background: '#1a1400', borderColor: '#3d2e00', color: '#f0b429' }}
+                  >
+                    <span className="font-bold uppercase tracking-widest text-[9px] block mb-1 opacity-70">Hint</span>
+                    {step.hint}
+                  </motion.div>
+                )}
+                {showHintButton && (
+                  <motion.button
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => showHint(step.id)}
+                    className="flex items-center gap-1.5 text-[10px] text-[#555] hover:text-[#888] transition-colors self-start"
+                  >
+                    <HelpCircle size={11} />
+                    I&apos;m stuck
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               {/* Edge/Action Hint */}
               <div className="px-1">

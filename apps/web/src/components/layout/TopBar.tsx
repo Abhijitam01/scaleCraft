@@ -5,17 +5,25 @@ import Link from 'next/link'
 import { useStore } from '@/lib/store'
 import { C } from '@/lib/tokens'
 import { motion } from 'framer-motion'
-import { LayoutGrid, Link as LinkIcon, ChevronLeft, Activity } from 'lucide-react'
+import { LayoutGrid, Link as LinkIcon, ChevronLeft, Activity, Clock } from 'lucide-react'
 import { encodeState } from '@/lib/shareState'
+
+const DIFFICULTY_COLORS: Record<string, string> = {
+  beginner: '#10b981',
+  intermediate: '#f59e0b',
+  advanced: '#ef4444',
+}
 
 interface TopBarProps {
   totalSteps?: number
   lessonTitle?: string
   isInteractive?: boolean
+  difficulty?: string
+  durationMin?: number
   onShowGallery?: () => void
 }
 
-export function TopBar({ totalSteps = 0, lessonTitle, isInteractive = false, onShowGallery }: TopBarProps) {
+export function TopBar({ totalSteps = 0, lessonTitle, isInteractive = false, difficulty, durationMin, onShowGallery }: TopBarProps) {
   const currentStepIndex = useStore((s) => s.currentStepIndex)
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
@@ -56,11 +64,31 @@ export function TopBar({ totalSteps = 0, lessonTitle, isInteractive = false, onS
         </Link>
       </div>
 
-      <div className="flex-1 flex items-center justify-center gap-4">
+      <div className="flex-1 flex items-center justify-center gap-3">
         {lessonTitle && (
-          <span className="text-[13px] font-semibold text-white truncate max-w-[260px]">
+          <span className="text-[13px] font-semibold text-white truncate max-w-[240px]">
             {lessonTitle}
           </span>
+        )}
+
+        {difficulty && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0"
+            style={{
+              background: `${DIFFICULTY_COLORS[difficulty] ?? '#888'}18`,
+              color: DIFFICULTY_COLORS[difficulty] ?? '#888',
+              border: `1px solid ${DIFFICULTY_COLORS[difficulty] ?? '#888'}30`,
+            }}
+          >
+            {difficulty}
+          </span>
+        )}
+
+        {durationMin && (
+          <div className="flex items-center gap-1 shrink-0" style={{ color: C.text.muted }}>
+            <Clock size={10} />
+            <span className="text-[10px]">{durationMin} min</span>
+          </div>
         )}
 
         {isInteractive && totalSteps > 0 && (
