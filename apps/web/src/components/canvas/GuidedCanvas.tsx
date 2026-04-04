@@ -16,7 +16,6 @@ import '@xyflow/react/dist/style.css'
 
 import { useStore } from '@/lib/store'
 import { C, NODE_META } from '@/lib/tokens'
-import { lesson } from '@/lib/content'
 import { ComponentNode } from '@/components/canvas/ComponentNode'
 import { HealthEdge } from '@/components/canvas/HealthEdge'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -25,20 +24,19 @@ const NODE_TYPES = { component: ComponentNode }
 const EDGE_TYPES = { health: HealthEdge }
 
 function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
-  const {
-    nodes,
-    edges,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
-    currentStepIndex,
-    markNodePlaced,
-    isDraggingOver,
-    setIsDraggingOver,
-    justPlaced,
-    setJustPlaced,
-    setNodes,
-  } = useStore()
+  const nodes = useStore(s => s.nodes)
+  const edges = useStore(s => s.edges)
+  const onNodesChange = useStore(s => s.onNodesChange)
+  const onEdgesChange = useStore(s => s.onEdgesChange)
+  const onConnect = useStore(s => s.onConnect)
+  const currentStepIndex = useStore(s => s.currentStepIndex)
+  const markNodePlaced = useStore(s => s.markNodePlaced)
+  const isDraggingOver = useStore(s => s.isDraggingOver)
+  const setIsDraggingOver = useStore(s => s.setIsDraggingOver)
+  const justPlaced = useStore(s => s.justPlaced)
+  const setJustPlaced = useStore(s => s.setJustPlaced)
+  const setNodes = useStore(s => s.setNodes)
+  const activeLesson = useStore(s => s.activeLesson)
   
   const { screenToFlowPosition } = useReactFlow()
   const flashTimer = useRef<NodeJS.Timeout>(undefined)
@@ -48,14 +46,14 @@ function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
   const isValidConnection = useCallback<IsValidConnection>(
     (connection) => {
       if (freeDraw) return true
-      const step = lesson.steps[currentStepIndex]
+      const step = activeLesson?.steps[currentStepIndex]
       if (!step) return true
       return (
         connection.source === step.allowedEdge.source &&
         connection.target === step.allowedEdge.target
       )
     },
-    [freeDraw, currentStepIndex]
+    [freeDraw, currentStepIndex, activeLesson]
   )
 
   const onDrop = useCallback(
@@ -80,12 +78,12 @@ function CanvasInner({ freeDraw = false }: { freeDraw?: boolean }) {
       setJustPlaced(true)
       flashTimer.current = setTimeout(() => setJustPlaced(false), 700)
 
-      const step = lesson.steps[currentStepIndex]
+      const step = activeLesson?.steps[currentStepIndex]
       if (step && nodeType === step.allowedNodeType) {
         markNodePlaced()
       }
     },
-    [currentStepIndex, nodes, screenToFlowPosition, setNodes, setIsDraggingOver, markNodePlaced, setJustPlaced]
+    [currentStepIndex, activeLesson, nodes, screenToFlowPosition, setNodes, setIsDraggingOver, markNodePlaced, setJustPlaced]
   )
 
   const onDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {

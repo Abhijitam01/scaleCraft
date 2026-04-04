@@ -26,6 +26,12 @@
     text-decoration: none;
   }
 
+  /* Thin dark scrollbar — applied to any scrollable container */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #222; border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: #333; }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

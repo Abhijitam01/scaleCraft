@@ -1,0 +1,77 @@
+{
+  "id": "consistent-hashing",
+  "title": "Scaling Distributed Data with Consistent Hashing",
+  "description": "Learn how to minimize data movement when scaling your database cluster. Map keys to nodes using a hash ring.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add a Distributed Database Cluster",
+      "detail": "Drag the first Database node onto the canvas.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "explanation": {
+        "what": "The primary storage for your sharded data.",
+        "why": "When your data no longer fits on one server, you must partition it across many.",
+        "tradeoff": "More servers means higher management complexity and potential for partial failure.",
+        "realWorld": "DynamoDB uses this at its core to shard trillions of items across thousands of nodes.",
+        "capacity": "Horizontal scaling: No theoretical limit on storage."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Second Database Node",
+      "detail": "Drag another Database node to expand the cluster.",
+      "allowedNodeType": "database",
+      "allowedEdge": { "source": "api_server", "target": "database" },
+      "explanation": {
+        "what": "Expanding the cluster to increase throughput and storage capacity.",
+        "why": "Consistent hashing ensures that when you add this node, only ~1/N of the data moves.",
+        "tradeoff": "Resharding data while the system is under load can impact latency.",
+        "realWorld": "Cassandra nodes join and leave the ring without downtime using gossip and consistent hashing.",
+        "capacity": "Scales read/write IOPS linearly."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add Virtual Nodes",
+      "detail": "Connect a Load Balancer to act as the hash ring manager.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "client", "target": "load_balancer" },
+      "explanation": {
+        "what": "Management layer that maps virtual positions on the hash ring to physical nodes.",
+        "why": "Physical nodes aren't always identical. Virtual nodes (tokens) ensure a balanced distribution of data even when hardware is heterogeneous.",
+        "tradeoff": "Higher metadata overhead for the hash ring mapping.",
+        "realWorld": "Discord's message storage uses a ring with thousands of virtual nodes to prevent hot spots.",
+        "capacity": "Enables micro-sharding at massive scale."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "If you have 4 nodes and add 1 more using 'mod n' hashing (not consistent), how much data needs to be moved?",
+        "options": [
+          { "id": "a", "text": "20%" },
+          { "id": "b", "text": "50%" },
+          { "id": "c", "text": "Nearly 100%" },
+          { "id": "d", "text": "0%" }
+        ],
+        "correctOptionId": "c",
+        "explanation": {
+          "correct": "With simple 'mod n' hashing, the target node for almost every key changes when N increases. This is why consistent hashing is crucial.",
+          "wrongAnswers": {
+            "a": "20% would be the ideal case (consistent hashing).",
+            "b": "Too optimistic for 'mod n'.",
+            "d": "Impossible with any hashing change."
+          }
+        }
+      }
+    ],
+    "passingScore": 1,
+    "totalQuestions": 1
+  }
+}

@@ -9,13 +9,15 @@ import {
   NodeChange,
   EdgeChange,
 } from '@xyflow/react'
-import { lesson, simulationStates, ecSimStates, chatSimStates } from '@/lib/content'
-import type { TrafficLevel } from '@/lib/validateContent'
-import { computeNodeHealth, type HealthState, type HealthInputState } from '@/lib/computeNodeHealth'
+import { getLessonContent } from '@/lib/content'
+import type { TrafficLevel, Lesson } from '@/lib/validateContent'
+import { type HealthState } from '@/lib/computeNodeHealth'
 import { type FailureScenario } from '@/lib/FailureCascade'
+import { deriveHealth as simDeriveHealth, type TrafficLevel as SimTrafficLevel } from '@repo/simulation-engine'
 import { urlShortenerTemplate } from '@/data/templates/url-shortener'
 import { ecommerceTemplate } from '@/data/templates/ecommerce'
 import { chatTemplate } from '@/data/templates/chat'
+import { getEdgeLabel } from '@/lib/edgeLabels'
 
 export type TemplateId = 'url-shortener' | 'ecommerce' | 'chat'
 
@@ -25,8 +27,27 @@ const TEMPLATE_DATA: Record<TemplateId, { nodes: Node[]; edges: Edge[] }> = {
   chat: chatTemplate,
 }
 
+const TEMPLATE_MAP: Record<string, TemplateId> = {
+  'url-shortener': 'url-shortener',
+  'ecommerce-platform': 'ecommerce',
+  'real-time-chat': 'chat',
+}
+
+interface CanvasSlice {
+  nodes: Node[]
+  edges: Edge[]
+  currentStepIndex: number
+  trafficLevel: TrafficLevel
+  readRatio: 0.9 | 0.99
+  activeScenario: FailureScenario | null
+  templateId: TemplateId
+}
+
 interface ScaleCraftState {
   currentStepIndex: number
+  activeLesson: Lesson | null
+  activeLessonId: string | null
+  canvasStates: Map<string, CanvasSlice>
   nodes: Node[]
   edges: Edge[]
   trafficLevel: TrafficLevel
@@ -52,60 +73,39 @@ interface ScaleCraftState {
   injectScenario: (scenario: FailureScenario) => void
   clearScenario: () => void
   loadTemplate: (id: TemplateId, nodes?: Node[], edges?: Edge[]) => void
+  setLesson: (id: string) => void
   clearCanvas: () => void
   reset: () => void
 }
 
-function deriveHealth(nodes: Node[], trafficLevel: TrafficLevel, readRatio: 0.9 | 0.99, templateId: TemplateId): Record<string, HealthState> {
-  const caching = nodes.some(n => n.data.nodeId === 'cache')
-  const connection_pooling = nodes.some(n => n.data.nodeId === 'load_balancer')
-  const read_replicas = nodes.some(n => n.data.nodeId === 'read_replica')
-  const cdn = nodes.some(n => n.data.nodeId === 'cdn')
-  const rate_limiter = nodes.some(n => n.data.nodeId === 'rate_limiter')
+const TRAFFIC_MAP: Record<TrafficLevel, SimTrafficLevel> = {
+  low: 'low',
+  med: 'moderate',
+  high: 'high',
+  spike: 'peak',
+}
 
-  let healthInput: HealthInputState
+function deriveHealth(nodes: Node[], edges: Edge[], trafficLevel: TrafficLevel, readRatio: 0.9 | 0.99): Record<string, HealthState> {
+  const simNodes = nodes.map(n => ({ id: n.id, nodeId: n.data.nodeId as string }))
+  const simEdges = edges.map(e => ({ source: e.source, target: e.target }))
+  const result = simDeriveHealth(simNodes, simEdges, {
+    trafficLevel: TRAFFIC_MAP[trafficLevel],
+    readRatio,
+    activeFailure: null,
+  })
+  return result.nodeHealth as Record<string, HealthState>
+}
 
-  if (templateId === 'ecommerce') {
-    const state = ecSimStates.find(
-      s => s.caching === caching && s.cdn === cdn && s.traffic_level === trafficLevel
-    ) ?? ecSimStates[0]!
-    healthInput = {
-      error_rate_pct: state.error_rate_pct,
-      p99_latency_ms: state.p99_latency_ms,
-      caching: state.caching,
-      cache_hit_rate_pct: state.cache_hit_rate_pct,
-      connection_pooling,
-      read_replicas,
-    }
-  } else if (templateId === 'chat') {
-    const state = chatSimStates.find(
-      s => s.caching === caching && s.rate_limiter === rate_limiter && s.traffic_level === trafficLevel
-    ) ?? chatSimStates[0]!
-    healthInput = {
-      error_rate_pct: state.error_rate_pct,
-      p99_latency_ms: state.p99_latency_ms,
-      caching: state.caching,
-      cache_hit_rate_pct: state.cache_hit_rate_pct,
-      connection_pooling,
-      read_replicas,
-    }
-  } else {
-    const state = simulationStates.find(
-      s => s.caching === caching && s.read_replicas === read_replicas &&
-           s.connection_pooling === connection_pooling && s.traffic_level === trafficLevel &&
-           s.read_ratio === readRatio
-    ) ?? simulationStates[0]!
-    healthInput = {
-      error_rate_pct: state.error_rate_pct,
-      p99_latency_ms: state.p99_latency_ms,
-      caching: state.caching,
-      cache_hit_rate_pct: state.cache_hit_rate_pct,
-      connection_pooling: state.connection_pooling,
-      read_replicas: state.read_replicas,
-    }
+function snapshotCanvas(state: ScaleCraftState): CanvasSlice {
+  return {
+    nodes: state.nodes,
+    edges: state.edges,
+    currentStepIndex: state.currentStepIndex,
+    trafficLevel: state.trafficLevel,
+    readRatio: state.readRatio,
+    activeScenario: state.activeScenario,
+    templateId: state.templateId,
   }
-
-  return computeNodeHealth(nodes.map(n => n.id), healthInput)
 }
 
 const INITIAL_NODES: Node[] = [
@@ -119,6 +119,9 @@ const INITIAL_NODES: Node[] = [
 
 export const useStore = create<ScaleCraftState>((set, get) => ({
   currentStepIndex: 0,
+  activeLesson: null,
+  activeLessonId: null,
+  canvasStates: new Map(),
   nodes: INITIAL_NODES,
   edges: [],
   trafficLevel: 'low',
@@ -126,7 +129,7 @@ export const useStore = create<ScaleCraftState>((set, get) => ({
   isDraggingOver: false,
   justPlaced: false,
   nodeJustPlaced: false,
-  nodeHealth: deriveHealth(INITIAL_NODES, 'low', 0.9, 'url-shortener'),
+  nodeHealth: deriveHealth(INITIAL_NODES, [], 'low', 0.9),
   activeScenario: null,
   templateId: 'url-shortener' as TemplateId,
 
@@ -143,30 +146,44 @@ export const useStore = create<ScaleCraftState>((set, get) => ({
   },
 
   onConnect: (connection) => {
-    const { currentStepIndex, nodeJustPlaced, edges, nodes, trafficLevel, readRatio, templateId } = get()
-    const step = lesson.steps[currentStepIndex]
+    const { currentStepIndex, nodeJustPlaced, edges, nodes, trafficLevel, readRatio, templateId, activeLesson } = get()
+    const step = activeLesson?.steps[currentStepIndex]
     const isStepEdge =
       step !== undefined &&
       connection.source === step.allowedEdge.source &&
       connection.target === step.allowedEdge.target &&
       nodeJustPlaced
-    const nextNodes = nodes
+
+    const sourceNode = nodes.find(n => n.id === connection.source)
+    const targetNode = nodes.find(n => n.id === connection.target)
+    const label = getEdgeLabel(
+      (sourceNode?.data.nodeId as string) ?? '',
+      (targetNode?.data.nodeId as string) ?? ''
+    )
+
+    const newEdges = addEdge(
+      {
+        ...connection,
+        type: 'health',
+        style: { stroke: '#10b981', strokeWidth: 2 },
+        animated: true,
+        data: { label },
+      },
+      edges
+    )
     set({
-      edges: addEdge(
-        { ...connection, style: { stroke: '#6366f1', strokeWidth: 2 }, animated: true },
-        edges
-      ),
-      nodeHealth: deriveHealth(nextNodes, trafficLevel, readRatio, templateId),
+      edges: newEdges,
+      nodeHealth: deriveHealth(nodes, newEdges, trafficLevel, readRatio),
       ...(isStepEdge ? { nodeJustPlaced: false, currentStepIndex: currentStepIndex + 1 } : {}),
     })
   },
 
   setNodes: (updater) => {
-    const { trafficLevel, readRatio, nodes, templateId } = get()
+    const { trafficLevel, readRatio, nodes, edges } = get()
     const nextNodes = typeof updater === 'function' ? updater(nodes) : updater
     set({
       nodes: nextNodes,
-      nodeHealth: deriveHealth(nextNodes, trafficLevel, readRatio, templateId),
+      nodeHealth: deriveHealth(nextNodes, edges, trafficLevel, readRatio),
     })
   },
 
@@ -183,13 +200,13 @@ export const useStore = create<ScaleCraftState>((set, get) => ({
   setJustPlaced: (justPlaced) => set({ justPlaced }),
 
   setTrafficLevel: (trafficLevel) => {
-    const { nodes, readRatio, templateId } = get()
-    set({ trafficLevel, nodeHealth: deriveHealth(nodes, trafficLevel, readRatio, templateId) })
+    const { nodes, edges, readRatio } = get()
+    set({ trafficLevel, nodeHealth: deriveHealth(nodes, edges, trafficLevel, readRatio) })
   },
 
   setReadRatio: (readRatio) => {
-    const { nodes, trafficLevel, templateId } = get()
-    set({ readRatio, nodeHealth: deriveHealth(nodes, trafficLevel, readRatio, templateId) })
+    const { nodes, edges, trafficLevel } = get()
+    set({ readRatio, nodeHealth: deriveHealth(nodes, edges, trafficLevel, readRatio) })
   },
 
   injectScenario: (scenario) => set({ activeScenario: scenario }),
@@ -197,7 +214,7 @@ export const useStore = create<ScaleCraftState>((set, get) => ({
   clearScenario: () => set({ activeScenario: null }),
 
   loadTemplate: (id, nodes, edges) => {
-    const { trafficLevel, readRatio } = get()
+    const { trafficLevel, readRatio, activeLesson } = get()
     const tpl = TEMPLATE_DATA[id]
     const resolvedNodes = nodes ?? tpl.nodes
     const resolvedEdges = edges ?? tpl.edges
@@ -205,28 +222,125 @@ export const useStore = create<ScaleCraftState>((set, get) => ({
       templateId: id,
       nodes: resolvedNodes,
       edges: resolvedEdges,
-      currentStepIndex: lesson.steps.length,
+      currentStepIndex: activeLesson?.steps.length ?? 0,
       nodeJustPlaced: false,
       activeScenario: null,
-      nodeHealth: deriveHealth(resolvedNodes, trafficLevel, readRatio, id),
+      nodeHealth: deriveHealth(resolvedNodes, resolvedEdges, trafficLevel, readRatio),
     })
   },
 
+  setLesson: (id) => {
+    const state = get()
+
+    // Save current canvas state before switching
+    const savedKey = state.activeLessonId ?? '__free__'
+    const nextCanvasStates = new Map(state.canvasStates)
+    nextCanvasStates.set(savedKey, snapshotCanvas(state))
+
+    const activeLesson = getLessonContent(id)
+
+    // Restore or initialize fresh canvas for this lesson
+    const saved = nextCanvasStates.get(id)
+    if (saved) {
+      set({
+        activeLesson,
+        activeLessonId: id,
+        canvasStates: nextCanvasStates,
+        nodes: saved.nodes,
+        edges: saved.edges,
+        currentStepIndex: saved.currentStepIndex,
+        trafficLevel: saved.trafficLevel,
+        readRatio: saved.readRatio,
+        activeScenario: saved.activeScenario,
+        templateId: saved.templateId,
+        nodeJustPlaced: false,
+        nodeHealth: deriveHealth(saved.nodes, saved.edges, saved.trafficLevel, saved.readRatio),
+      })
+    } else {
+      // Fresh start for this lesson
+      const tplId = TEMPLATE_MAP[id]
+      if (tplId) {
+        const tpl = TEMPLATE_DATA[tplId]
+        set({
+          activeLesson,
+          activeLessonId: id,
+          canvasStates: nextCanvasStates,
+          templateId: tplId,
+          nodes: tpl.nodes,
+          edges: tpl.edges,
+          currentStepIndex: 0,
+          trafficLevel: 'low',
+          readRatio: 0.9,
+          activeScenario: null,
+          nodeJustPlaced: false,
+          nodeHealth: deriveHealth(tpl.nodes, tpl.edges, 'low', 0.9),
+        })
+      } else {
+        set({
+          activeLesson,
+          activeLessonId: id,
+          canvasStates: nextCanvasStates,
+          nodes: INITIAL_NODES,
+          edges: [],
+          currentStepIndex: 0,
+          trafficLevel: 'low',
+          readRatio: 0.9,
+          activeScenario: null,
+          nodeJustPlaced: false,
+          templateId: 'url-shortener',
+          nodeHealth: deriveHealth(INITIAL_NODES, [], 'low', 0.9),
+        })
+      }
+    }
+  },
+
   clearCanvas: () => {
-    set({
-      nodes: INITIAL_NODES,
-      edges: [],
-      currentStepIndex: lesson.steps.length,
-      nodeJustPlaced: false,
-      activeScenario: null,
-      templateId: 'url-shortener',
-      nodeHealth: deriveHealth(INITIAL_NODES, get().trafficLevel, get().readRatio, 'url-shortener'),
-    })
+    const state = get()
+
+    // Save current canvas state before clearing
+    const savedKey = state.activeLessonId ?? '__free__'
+    const nextCanvasStates = new Map(state.canvasStates)
+    nextCanvasStates.set(savedKey, snapshotCanvas(state))
+
+    // Restore free canvas or start fresh
+    const saved = nextCanvasStates.get('__free__')
+    if (saved && state.activeLessonId !== null) {
+      set({
+        activeLesson: null,
+        activeLessonId: null,
+        canvasStates: nextCanvasStates,
+        nodes: saved.nodes,
+        edges: saved.edges,
+        currentStepIndex: saved.currentStepIndex,
+        trafficLevel: saved.trafficLevel,
+        readRatio: saved.readRatio,
+        activeScenario: saved.activeScenario,
+        templateId: saved.templateId,
+        nodeJustPlaced: false,
+        nodeHealth: deriveHealth(saved.nodes, saved.edges, saved.trafficLevel, saved.readRatio),
+      })
+    } else {
+      set({
+        nodes: INITIAL_NODES,
+        edges: [],
+        currentStepIndex: 0,
+        activeLesson: null,
+        activeLessonId: null,
+        canvasStates: nextCanvasStates,
+        nodeJustPlaced: false,
+        activeScenario: null,
+        templateId: 'url-shortener',
+        nodeHealth: deriveHealth(INITIAL_NODES, [], get().trafficLevel, get().readRatio),
+      })
+    }
   },
 
   reset: () => {
     set({
       currentStepIndex: 0,
+      activeLesson: null,
+      activeLessonId: null,
+      canvasStates: new Map(),
       nodes: INITIAL_NODES,
       edges: [],
       trafficLevel: 'low',
@@ -234,7 +348,7 @@ export const useStore = create<ScaleCraftState>((set, get) => ({
       isDraggingOver: false,
       justPlaced: false,
       nodeJustPlaced: false,
-      nodeHealth: deriveHealth(INITIAL_NODES, 'low', 0.9, 'url-shortener'),
+      nodeHealth: deriveHealth(INITIAL_NODES, [], 'low', 0.9),
       activeScenario: null,
       templateId: 'url-shortener',
     })

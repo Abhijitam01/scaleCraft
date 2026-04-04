@@ -27,8 +27,8 @@ export function AppNav() {
       <div
         className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[13px] font-black tracking-tight mb-4 shrink-0"
         style={{
-          background: `linear-gradient(135deg, ${C.accent.primary}, #8b5cf6)`,
-          color: '#fff',
+          background: C.accent.primary,
+          color: '#000',
         }}
       >
         SC

@@ -1,4 +1,8 @@
-import lessonRaw from '@/data/lesson-url-shortener.json'
+import urlShortenerRaw from '@/data/lesson-url-shortener.json'
+import rateLimiterRaw from '@/data/lesson-rate-limiter.json'
+import consistentHashingRaw from '@/data/lesson-consistent-hashing.json'
+import ecommerceRaw from '@/data/lesson-ecommerce.json'
+import cdnRaw from '@/data/lesson-cdn.json'
 import simStatesRaw from '@/data/simulationStates.json'
 import ecSimStatesRaw from '@/data/sim-ecommerce.json'
 import chatSimStatesRaw from '@/data/sim-chat.json'
@@ -7,7 +11,21 @@ import { validateEcommerceSimStates, validateChatSimStates } from '@/lib/validat
 import type { Lesson, SimulationState } from '@/lib/validateContent'
 import type { EcommerceSimulationState, ChatSimulationState } from '@/lib/validateTemplate'
 
-export const lesson: Lesson = validateLesson(lessonRaw)
+const LESSON_REGISTRY: Record<string, unknown> = {
+  'url-shortener': urlShortenerRaw,
+  'rate-limiter': rateLimiterRaw,
+  'consistent-hashing': consistentHashingRaw,
+  'ecommerce-platform': ecommerceRaw,
+  'cdn-design': cdnRaw,
+}
+
+export function getLessonContent(id: string): Lesson | null {
+  const raw = LESSON_REGISTRY[id]
+  if (!raw) return null
+  return validateLesson(raw)
+}
+
+export const lesson: Lesson = validateLesson(urlShortenerRaw)
 export const simulationStates: SimulationState[] = validateSimulationStates(simStatesRaw)
 export const ecSimStates: EcommerceSimulationState[] = validateEcommerceSimStates(ecSimStatesRaw)
 export const chatSimStates: ChatSimulationState[] = validateChatSimStates(chatSimStatesRaw)

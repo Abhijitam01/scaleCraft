@@ -1,0 +1,77 @@
+{
+  "id": "ecommerce-platform",
+  "title": "Design a Scalable E-commerce Platform",
+  "description": "Build a system that survives Black Friday spikes. Balance real-time inventory with global content delivery.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add a Product Catalog Server",
+      "detail": "Drag an API Server onto the canvas. This handles product listings and searches.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "client", "target": "api_server" },
+      "explanation": {
+        "what": "The server responsible for serving product details, categories, and inventory status.",
+        "why": "Separating the catalog from the checkout process (microservices) allows you to scale the read-heavy catalog independently of the write-heavy checkout.",
+        "tradeoff": "Increased complexity in managing inter-service communication and eventual consistency for inventory counts.",
+        "realWorld": "Amazon transitioned from a monolithic 'Obidos' backend to a service-oriented architecture in the early 2000s to solve exactly this.",
+        "capacity": "~200 RPS per instance for typical catalog browse operations."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Global CDN",
+      "detail": "Drag a CDN and connect it in front of your Catalog.",
+      "allowedNodeType": "cdn",
+      "allowedEdge": { "source": "client", "target": "cdn" },
+      "explanation": {
+        "what": "Caches static assets (images, CSS) and highly-read dynamic content (top-selling product pages) at the network edge.",
+        "why": "90% of e-commerce traffic is 'window shopping' (browsing). A CDN in Tokyo can serve a Japanese user in 10ms instead of 150ms round-trip to a US origin server.",
+        "tradeoff": "Cache invalidation lag. If you change a price, users might see the old price for a few minutes until the CDN cache expires.",
+        "realWorld": "Shopify uses Fastly and Cloudflare to handle massive spikes during flash sales for major brands.",
+        "capacity": "CDNs can absorb 95%+ of catalog traffic, reducing origin load by 20x."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add a Shopping Cart Cache",
+      "detail": "Drag a Cache (Redis) and connect it to your Catalog Server.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "api_server", "target": "cache" },
+      "explanation": {
+        "what": "In-memory storage for active user sessions and 'Added to Cart' items.",
+        "why": "Shopping carts are highly transient. Writing every 'Add to Cart' action to a primary SQL database creates massive write contention. Redis handles this with sub-millisecond latency.",
+        "tradeoff": "Data volatility. If Redis crashes without persistence enabled, users lose their carts. (Acceptable for most e-commerce).",
+        "realWorld": "eBay uses a massive distributed cache to handle the Billions of cart updates they see daily.",
+        "capacity": "Redis handles 100k+ operations per second on a single instance."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "What is the most critical component for handling a 50x surge in 'browsing' traffic during Black Friday?",
+        "options": [
+          { "id": "a", "text": "More Database Replicas" },
+          { "id": "b", "text": "Content Delivery Network (CDN)" },
+          { "id": "c", "text": "Auto-scaling API Servers" },
+          { "id": "d", "text": "Larger Load Balancer" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Browsing traffic is read-heavy and static-asset heavy. A CDN offloads the vast majority of this traffic at the edge, preventing it from ever hitting your servers.",
+          "wrongAnswers": {
+            "a": "Database replicas help with dynamic reads, but CDN is more efficient for the majority of browsing traffic.",
+            "c": "API servers help but are more expensive and slower to scale than a CDN-hit.",
+            "d": "Load balancers distribute traffic but don't reduce the total work your servers must do."
+          }
+        }
+      }
+    ],
+    "passingScore": 1,
+    "totalQuestions": 1
+  }
+}

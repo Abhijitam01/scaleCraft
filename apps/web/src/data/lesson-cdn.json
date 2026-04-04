@@ -1,0 +1,77 @@
+{
+  "id": "cdn-design",
+  "title": "Design a Global Content Delivery Network",
+  "description": "Learn how to cache content at the 'Edge'. Understand PoPs, Anycast routing, and cache hierarchies.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add an Origin Server",
+      "detail": "Drag an API Server onto the canvas. This is your 'Source of Truth'.",
+      "allowedNodeType": "api_server",
+      "allowedEdge": { "source": "client", "target": "api_server" },
+      "explanation": {
+        "what": "The server where your original web content (images, videos, HTML) is stored before being cached.",
+        "why": "Even with a CDN, you need a central point to upload and manage your files. When a CDN node doesn't have a file, it fetches it from here.",
+        "tradeoff": "Vulnerable to 'thundering herd' if the CDN cache is flushed simultaneously across the globe.",
+        "realWorld": "Netflix uses AWS S3 as their origin for petabytes of video content before it gets pushed to their Open Connect CDN.",
+        "capacity": "Origins only see ~1-5% of total traffic after the CDN is warm."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Global CDN Layer",
+      "detail": "Drag a CDN node and connect it in front of your Origin.",
+      "allowedNodeType": "cdn",
+      "allowedEdge": { "source": "client", "target": "cdn" },
+      "explanation": {
+        "what": "A network of globally distributed proxy servers that cache content close to users.",
+        "why": "Speed of light is a bottleneck. 100ms round-trip to a US origin is unacceptable for a user in London. A London CDN node serves them in <5ms.",
+        "tradeoff": "Cost and complexity. Purging a global cache (invalidation) is notoriously difficult to get perfectly right in real-time.",
+        "realWorld": "Cloudflare handles ~20% of the internet's HTTP traffic through their network of 300+ Point of Presence (PoP) locations.",
+        "capacity": "Modern CDNs handle 100+ Tbps of global throughput."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add Request Shielding",
+      "detail": "Connect a Load Balancer between the CDN and the Origin.",
+      "allowedNodeType": "load_balancer",
+      "allowedEdge": { "source": "cdn", "target": "load_balancer" },
+      "explanation": {
+        "what": "A dedicated regional layer (Proxy) that sits between the edge nodes and the origin.",
+        "why": "Origin Shielding prevents thousands of edge nodes from all hitting your origin at once for a missing file. They hit the shield first, which collapses multiple requests into one fetch.",
+        "tradeoff": "Adds another layer of potential failure and slightly more latency for cache misses (origin fetches).",
+        "realWorld": "Fastly's Origin Shielding often reduces origin traffic by 99% for viral content.",
+        "capacity": "Origin shields focus on request consolidation, not just raw volume."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "What is 'Anycast' routing primarily used for in a CDN?",
+        "options": [
+          { "id": "a", "text": "Broadcasting data to all servers simultaneously" },
+          { "id": "b", "text": "Routing a user to the geographically closest server using the same IP" },
+          { "id": "c", "text": "Duplicating requests for redundancy" },
+          { "id": "d", "text": "Hiding the origin IP address" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Anycast allows multiple servers to share the same IP. BGP routing then sends the user's packets to the 'closest' node on the network, minimizing latency naturally.",
+          "wrongAnswers": {
+            "a": "That is 'Multicast'.",
+            "c": "Anycast only routes to one destination, even if many share the IP.",
+            "d": "Anycast is a networking protocol; while it hides IPs as a side effect, its primary job is routing efficiency."
+          }
+        }
+      }
+    ],
+    "passingScore": 1,
+    "totalQuestions": 1
+  }
+}

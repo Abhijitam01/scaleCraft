@@ -1,0 +1,77 @@
+{
+  "id": "rate-limiter",
+  "title": "Design a Distributed Rate Limiter",
+  "description": "Protect your APIs from being overwhelmed by too many requests. Learn Token Bucket and Sliding Window algorithms.",
+  "steps": [
+    {
+      "id": "step-1",
+      "stepNumber": 1,
+      "instruction": "Add an API Gateway",
+      "detail": "Drag the API Gateway onto the canvas. It usually acts as the entry point for rate limiting.",
+      "allowedNodeType": "api_gateway",
+      "allowedEdge": { "source": "client", "target": "api_gateway" },
+      "explanation": {
+        "what": "A centralized entry point for all API requests. It handles cross-cutting concerns like authentication and, importantly, rate limiting.",
+        "why": "Rate limiting at the gateway level prevents malicious or excessive traffic from even reaching your backend services, saving compute resources.",
+        "tradeoff": "Adds a small amount of latency to every request. If the gateway goes down, your entire API is unreachable.",
+        "realWorld": "AWS API Gateway and Nginx both provide built-in rate limiting modules used by thousands of companies.",
+        "capacity": "Modern API Gateways can handle 50k+ RPS per instance."
+      }
+    },
+    {
+      "id": "step-2",
+      "stepNumber": 2,
+      "instruction": "Add a Rate Limiter Logic Node",
+      "detail": "In this simulation, we'll use a specialized Rate Limiter component.",
+      "allowedNodeType": "rate_limiter",
+      "allowedEdge": { "source": "api_gateway", "target": "rate_limiter" },
+      "explanation": {
+        "what": "The component that actually implements the counting logic (e.g., Token Bucket).",
+        "why": "Separating rate limiting logic allows you to fine-tune algorithms without redeploying your entire gateway.",
+        "tradeoff": "Adds an extra internal network hop.",
+        "realWorld": "Stripe uses a library called 'redis-rate-limiter' to handle their massive volume of payment requests.",
+        "capacity": "Algorithmic throughput: ~100k checks/sec."
+      }
+    },
+    {
+      "id": "step-3",
+      "stepNumber": 3,
+      "instruction": "Add Redis for State",
+      "detail": "Drag a Cache (Redis) and connect it to the Rate Limiter.",
+      "allowedNodeType": "cache",
+      "allowedEdge": { "source": "rate_limiter", "target": "cache" },
+      "explanation": {
+        "what": "Stores the current state of counters (e.g., how many tokens are left for a specific IP).",
+        "why": "Standard in-memory counters won't work in a distributed system because requests from the same user might hit different servers. Redis provides atomic operations (INCR) to keep counters consistent.",
+        "tradeoff": "The 'thundering herd' problem if Redis is slow. All requests will wait on the Redis check.",
+        "realWorld": "GitHub's API rate limits are tracked in a dedicated Redis cluster to ensure consistency across their global infrastructure.",
+        "capacity": "Redis can handle ~100k atomic operations per second on a single core."
+      }
+    }
+  ],
+  "quiz": {
+    "questions": [
+      {
+        "id": "q1",
+        "question": "Which algorithm is best for allowing short bursts of traffic while maintaining a steady average rate?",
+        "options": [
+          { "id": "a", "text": "Fixed Window" },
+          { "id": "b", "text": "Token Bucket" },
+          { "id": "c", "text": "Leaky Bucket" },
+          { "id": "d", "text": "Sliding Window" }
+        ],
+        "correctOptionId": "b",
+        "explanation": {
+          "correct": "Token Bucket allows for bursts up to the bucket size. Tokens accumulate when traffic is low, and can be used all at once for a burst.",
+          "wrongAnswers": {
+            "a": "Fixed Window allows 'double' traffic at the boundary of windows.",
+            "c": "Leaky Bucket shapes traffic to a strictly constant rate, forbidding bursts.",
+            "d": "Sliding Window is accurate but doesn't handle bursts as naturally as Token Bucket."
+          }
+        }
+      }
+    ],
+    "passingScore": 1,
+    "totalQuestions": 1
+  }
+}

@@ -1,29 +1,35 @@
+import { colors } from '@repo/ui/tokens'
+
+// Re-export the design system tokens as `C` for backward compat
 export const C = {
-  bg:       { app: '#0a0a0a', panel: '#111111', topbar: '#141414', node: '#1c1c1c', card: '#1a1a1a', inset: '#161620' },
-  border:   { default: '#222222', card: '#2a2a2a', node: '#333333', panel: '#1e1e1e', faint: '#1a1a1a' },
-  accent:   { primary: '#6366f1', hover: '#818cf8', soft: 'rgba(99,102,241,0.08)', glow: 'rgba(99,102,241,0.25)' },
-  text:     { primary: '#ffffff', body: '#cccccc', secondary: '#888888', muted: '#555555', label: '#444444' },
-  semantic: { success: '#4ade80', successBg: 'rgba(74,222,128,0.08)', successBorder: 'rgba(74,222,128,0.25)', error: '#ef4444', errorBg: 'rgba(239,68,68,0.08)', errorBorder: 'rgba(239,68,68,0.25)' },
-  purple:   { soft: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.25)' },
-} as const;
+  bg:       colors.bg,
+  border:   colors.border,
+  accent:   colors.accent,
+  text:     colors.text,
+  semantic: colors.semantic,
+} as const
+
+// All nodes use a neutral gray — icon abbreviation (LB, DB, etc.) is the visual differentiator.
+// The accent color is reserved for highlighted/required state only.
+const NODE_COLOR = '#3f3f3f'
 
 export const NODE_META: Record<string, { icon: string; color: string; sublabel: string }> = {
-  client:        { icon: 'CLT', color: '#6b7280', sublabel: 'browser / user' },
-  api_server:    { icon: 'API', color: '#6366f1', sublabel: 'handles requests' },
-  database:      { icon: 'DB',  color: '#8b5cf6', sublabel: 'stores data' },
-  load_balancer: { icon: 'LB',  color: '#eab308', sublabel: 'distributes traffic' },
-  cache:         { icon: 'RED', color: '#ef4444', sublabel: 'in-memory data' },
-  read_replica:  { icon: 'REP', color: '#d946ef', sublabel: 'read-only db' },
-  cdn:           { icon: 'CDN', color: '#0ea5e9', sublabel: 'edge caching' },
-  rate_limiter:  { icon: 'RAT', color: '#f97316', sublabel: 'throttles requests' },
-  monitoring:    { icon: 'MON', color: '#10b981', sublabel: 'observability' },
-  server:        { icon: 'SRV', color: '#6366f1', sublabel: 'compute node' },
-  worker:        { icon: 'WRK', color: '#a78bfa', sublabel: 'background job' },
-  container:     { icon: 'CTR', color: '#38bdf8', sublabel: 'docker container' },
-  function:      { icon: 'FN',  color: '#fb923c', sublabel: 'serverless fn' },
-  blob_storage:  { icon: 'S3',  color: '#fbbf24', sublabel: 'object store' },
-  message_queue: { icon: 'MQ',  color: '#34d399', sublabel: 'async queue' },
-  api_gateway:   { icon: 'GW',  color: '#818cf8', sublabel: 'gateway / proxy' },
-  search:        { icon: 'ES',  color: '#fb7185', sublabel: 'search index' },
-  stream:        { icon: 'KFK', color: '#4ade80', sublabel: 'event stream' },
+  client:        { icon: 'CLT', color: NODE_COLOR, sublabel: 'browser / user' },
+  api_server:    { icon: 'API', color: NODE_COLOR, sublabel: 'handles requests' },
+  database:      { icon: 'DB',  color: NODE_COLOR, sublabel: 'stores data' },
+  load_balancer: { icon: 'LB',  color: NODE_COLOR, sublabel: 'distributes traffic' },
+  cache:         { icon: 'RED', color: NODE_COLOR, sublabel: 'in-memory data' },
+  read_replica:  { icon: 'REP', color: NODE_COLOR, sublabel: 'read-only db' },
+  cdn:           { icon: 'CDN', color: NODE_COLOR, sublabel: 'edge caching' },
+  rate_limiter:  { icon: 'RAT', color: NODE_COLOR, sublabel: 'throttles requests' },
+  monitoring:    { icon: 'MON', color: NODE_COLOR, sublabel: 'observability' },
+  server:        { icon: 'SRV', color: NODE_COLOR, sublabel: 'compute node' },
+  worker:        { icon: 'WRK', color: NODE_COLOR, sublabel: 'background job' },
+  container:     { icon: 'CTR', color: NODE_COLOR, sublabel: 'docker container' },
+  function:      { icon: 'FN',  color: NODE_COLOR, sublabel: 'serverless fn' },
+  blob_storage:  { icon: 'S3',  color: NODE_COLOR, sublabel: 'object store' },
+  message_queue: { icon: 'MQ',  color: NODE_COLOR, sublabel: 'async queue' },
+  api_gateway:   { icon: 'GW',  color: NODE_COLOR, sublabel: 'gateway / proxy' },
+  search:        { icon: 'ES',  color: NODE_COLOR, sublabel: 'search index' },
+  stream:        { icon: 'KFK', color: NODE_COLOR, sublabel: 'event stream' },
 }

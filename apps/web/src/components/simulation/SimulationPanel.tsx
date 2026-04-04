@@ -58,7 +58,13 @@ function MetricCard({
 }
 
 export function SimulationPanel({ className }: { className?: string }) {
-  const { nodes, trafficLevel, setTrafficLevel, readRatio, setReadRatio, activeScenario, templateId } = useStore()
+  const nodes = useStore(s => s.nodes)
+  const trafficLevel = useStore(s => s.trafficLevel)
+  const setTrafficLevel = useStore(s => s.setTrafficLevel)
+  const readRatio = useStore(s => s.readRatio)
+  const setReadRatio = useStore(s => s.setReadRatio)
+  const activeScenario = useStore(s => s.activeScenario)
+  const templateId = useStore(s => s.templateId)
   const [open, setOpen] = useState(false)
 
   // Compute effective architecture flags from placed nodes
@@ -136,11 +142,12 @@ export function SimulationPanel({ className }: { className?: string }) {
                 <button
                   key={level}
                   onClick={() => setTrafficLevel(level)}
-                  className={`flex-1 text-[11px] py-1.5 rounded-[5px] uppercase tracking-wider font-semibold transition-colors ${
-                    trafficLevel === level 
-                      ? 'bg-[#2a2a2a] text-white shadow-sm' 
-                      : 'text-[#888] hover:text-[#ccc]'
-                  }`}
+                  className="flex-1 text-[11px] py-1.5 rounded-[5px] uppercase tracking-wider font-semibold transition-colors"
+                  style={
+                    trafficLevel === level
+                      ? { background: C.accent.soft, color: C.accent.hover, border: `1px solid ${C.accent.primary}44` }
+                      : { color: '#666' }
+                  }
                 >
                   {level}
                 </button>
@@ -156,11 +163,12 @@ export function SimulationPanel({ className }: { className?: string }) {
                   <button
                     key={ratio}
                     onClick={() => setReadRatio(ratio as 0.9 | 0.99)}
-                    className={`flex-1 text-[11px] py-1.5 rounded-[5px] font-semibold transition-colors ${
+                    className="flex-1 text-[11px] py-1.5 rounded-[5px] font-semibold transition-colors"
+                    style={
                       readRatio === ratio
-                        ? 'bg-[#2a2a2a] text-white shadow-sm'
-                        : 'text-[#888] hover:text-[#ccc]'
-                    }`}
+                        ? { background: C.accent.soft, color: C.accent.hover, border: `1px solid ${C.accent.primary}44` }
+                        : { color: '#666' }
+                    }
                   >
                     {ratio * 100}% Reads
                   </button>
@@ -179,12 +187,12 @@ export function SimulationPanel({ className }: { className?: string }) {
                 key={label}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border"
                 style={{
-                  background: active ? C.semantic.successBg : '#1a1a1a',
-                  borderColor: active ? C.semantic.successBorder : '#2a2a2a',
-                  color: active ? C.semantic.success : '#555',
+                  background: active ? C.accent.soft : '#1a1a1a',
+                  borderColor: active ? `${C.accent.primary}44` : '#2a2a2a',
+                  color: active ? C.accent.hover : '#555',
                 }}
               >
-                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: active ? C.semantic.success : '#333' }} />
+                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: active ? C.accent.primary : '#333' }} />
                 {label}
               </div>
             ))}
@@ -293,12 +301,6 @@ export function SimulationPanel({ className }: { className?: string }) {
 
       </div>
 
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #222; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #333; }
-      `}</style>
     </div>
   )
 }

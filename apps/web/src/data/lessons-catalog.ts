@@ -31,7 +31,7 @@ export const LESSONS: LessonMeta[] = [
     durationMin: 30,
     tags: ['API', 'Algorithms'],
     category: 'Fundamentals',
-    isInteractive: false,
+    isInteractive: true,
   },
   {
     id: 'consistent-hashing',
@@ -41,7 +41,7 @@ export const LESSONS: LessonMeta[] = [
     durationMin: 25,
     tags: ['Algorithms', 'Distribution'],
     category: 'Fundamentals',
-    isInteractive: false,
+    isInteractive: true,
   },
   {
     id: 'key-value-store',
@@ -71,7 +71,7 @@ export const LESSONS: LessonMeta[] = [
     durationMin: 30,
     tags: ['CDN', 'Networking'],
     category: 'Networking',
-    isInteractive: false,
+    isInteractive: true,
   },
   {
     id: 'dns-deep-dive',

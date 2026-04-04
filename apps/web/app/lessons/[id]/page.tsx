@@ -10,47 +10,39 @@ import { TemplateGallery } from '@/components/TemplateGallery'
 import { decodeState } from '@/lib/shareState'
 import { useStore } from '@/lib/store'
 import { getLessonById } from '@/data/lessons-catalog'
-import { lesson } from '@/lib/content'
-
-const INTERACTIVE_LESSON_IDS = new Set(['url-shortener', 'ecommerce-platform', 'real-time-chat'])
 
 export default function LessonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [showGallery, setShowGallery] = useState(false)
   const loadTemplate = useStore((s) => s.loadTemplate)
+  const setLesson = useStore((s) => s.setLesson)
+  const activeLesson = useStore((s) => s.activeLesson)
 
   const meta = getLessonById(id)
   if (!meta) notFound()
 
-  const templateMap: Record<string, 'url-shortener' | 'ecommerce' | 'chat'> = {
-    'url-shortener': 'url-shortener',
-    'ecommerce-platform': 'ecommerce',
-    'real-time-chat': 'chat',
-  }
-
   useEffect(() => {
+    setLesson(id)
+
     const params = new URLSearchParams(window.location.search)
     const encoded = params.get('d')
     if (encoded) {
       const parsed = decodeState(encoded)
       if (parsed) {
         loadTemplate(parsed.templateId, parsed.nodes, parsed.edges)
-        return
       }
     }
-    const tplId = templateMap[id]
-    if (tplId) loadTemplate(tplId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  const isInteractive = INTERACTIVE_LESSON_IDS.has(id)
+  const isInteractive = !!activeLesson
 
   return (
     <div className="flex flex-col h-full font-mono bg-[#0a0a0a] overflow-hidden text-white">
       <TopBar
         lessonTitle={meta.title}
         isInteractive={isInteractive}
-        totalSteps={isInteractive ? lesson.steps.length : 0}
+        totalSteps={activeLesson?.steps.length ?? 0}
         onShowGallery={() => setShowGallery(true)}
       />
 

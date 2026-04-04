@@ -1,4 +1,4 @@
-export type HealthState = 'idle' | 'active' | 'degraded' | 'overloaded' | 'failed'
+export type HealthState = 'idle' | 'healthy' | 'degraded' | 'overloaded' | 'failed'
 
 /**
  * Structural subset of sim state fields needed for health derivation.
@@ -29,14 +29,14 @@ export function computeNodeHealth(
   for (const id of placedNodeIds) {
     switch (id) {
       case 'client':
-        health[id] = 'active'
+        health[id] = 'healthy'
         break
 
       case 'database': {
         if (state.error_rate_pct > 10) health[id] = 'failed'
         else if (state.error_rate_pct > 5) health[id] = 'overloaded'
         else if (state.error_rate_pct > 2 || state.p99_latency_ms > 300) health[id] = 'degraded'
-        else health[id] = 'active'
+        else health[id] = 'healthy'
         break
       }
 
@@ -44,31 +44,31 @@ export function computeNodeHealth(
         if (state.error_rate_pct > 8) health[id] = 'failed'
         else if (state.error_rate_pct > 3) health[id] = 'overloaded'
         else if (state.error_rate_pct > 1) health[id] = 'degraded'
-        else health[id] = 'active'
+        else health[id] = 'healthy'
         break
       }
 
       case 'cache': {
         if (!state.caching) health[id] = 'idle'
-        else if (state.cache_hit_rate_pct > 80) health[id] = 'active'
+        else if (state.cache_hit_rate_pct > 80) health[id] = 'healthy'
         else health[id] = 'degraded'
         break
       }
 
       case 'load_balancer': {
-        health[id] = state.connection_pooling ? 'active' : 'idle'
+        health[id] = state.connection_pooling ? 'healthy' : 'idle'
         break
       }
 
       case 'read_replica': {
-        health[id] = state.read_replicas ? 'active' : 'idle'
+        health[id] = state.read_replicas ? 'healthy' : 'idle'
         break
       }
 
       case 'cdn':
       case 'rate_limiter':
       case 'monitoring':
-        health[id] = 'active'
+        health[id] = 'healthy'
         break
 
       default:
@@ -81,7 +81,7 @@ export function computeNodeHealth(
 
 export const HEALTH_COLORS: Record<HealthState, string> = {
   idle:      '#333333',
-  active:    '#4ade80',
+  healthy:    '#4ade80',
   degraded:  '#fbbf24',
   overloaded: '#f97316',
   failed:    '#ef4444',

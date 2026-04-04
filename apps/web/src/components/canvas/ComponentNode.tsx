@@ -4,9 +4,9 @@ import { motion } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import { HEALTH_COLORS } from '@/lib/computeNodeHealth'
 
-export function ComponentNode({ data }: { data: { label: string; nodeId: string } }) {
+export function ComponentNode({ id, data }: { id: string; data: { label: string; nodeId: string } }) {
   const meta = NODE_META[data.nodeId] ?? { icon: '?', color: '#444', sublabel: '' }
-  const health = useStore(s => s.nodeHealth[data.nodeId] ?? 'idle')
+  const health = useStore(s => s.nodeHealth[id] ?? 'idle')
   const healthColor = HEALTH_COLORS[health]
   const isActive = health !== 'idle'
 

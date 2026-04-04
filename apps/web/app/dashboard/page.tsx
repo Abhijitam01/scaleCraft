@@ -7,10 +7,10 @@ import { C } from '@/lib/tokens'
 import { LESSONS, getLessonsByDifficulty } from '@/data/lessons-catalog'
 
 const STATS = [
-  { label: 'Lessons', value: '65', icon: BookOpen, color: C.accent.primary },
-  { label: 'Patterns', value: '12', icon: Zap, color: '#8b5cf6' },
-  { label: 'Avg time', value: '~25m', icon: Clock, color: '#0ea5e9' },
-  { label: 'Topics', value: '8', icon: TrendingUp, color: '#10b981' },
+  { label: 'Lessons', value: '65', icon: BookOpen },
+  { label: 'Patterns', value: '12', icon: Zap },
+  { label: 'Avg time', value: '~25m', icon: Clock },
+  { label: 'Topics', value: '8', icon: TrendingUp },
 ]
 
 const FEATURED = LESSONS.filter(l =>
@@ -26,14 +26,14 @@ const DIFF_COLOR: Record<string, string> = {
 }
 
 const TOPICS = [
-  { label: 'Fundamentals', count: 8, color: '#4ade80', path: '/lessons?category=fundamentals' },
-  { label: 'Databases', count: 10, color: '#0ea5e9', path: '/lessons?category=databases' },
-  { label: 'Caching', count: 7, color: '#f97316', path: '/lessons?category=caching' },
-  { label: 'Messaging', count: 6, color: '#8b5cf6', path: '/lessons?category=messaging' },
-  { label: 'Networking', count: 8, color: '#eab308', path: '/lessons?category=networking' },
-  { label: 'Streaming', count: 5, color: '#ec4899', path: '/lessons?category=streaming' },
-  { label: 'Storage', count: 6, color: '#14b8a6', path: '/lessons?category=storage' },
-  { label: 'Case Studies', count: 15, color: '#ef4444', path: '/lessons?category=case-studies' },
+  { label: 'Fundamentals', count: 8, path: '/lessons?category=fundamentals' },
+  { label: 'Databases', count: 10, path: '/lessons?category=databases' },
+  { label: 'Caching', count: 7, path: '/lessons?category=caching' },
+  { label: 'Messaging', count: 6, path: '/lessons?category=messaging' },
+  { label: 'Networking', count: 8, path: '/lessons?category=networking' },
+  { label: 'Streaming', count: 5, path: '/lessons?category=streaming' },
+  { label: 'Storage', count: 6, path: '/lessons?category=storage' },
+  { label: 'Case Studies', count: 15, path: '/lessons?category=case-studies' },
 ]
 
 export default function DashboardPage() {
@@ -55,7 +55,7 @@ export default function DashboardPage() {
           transition={{ duration: 0.4, delay: 0.05 }}
           className="grid grid-cols-4 gap-4 mb-10"
         >
-          {STATS.map(({ label, value, icon: Icon, color }) => (
+          {STATS.map(({ label, value, icon: Icon }) => (
             <div
               key={label}
               className="rounded-[12px] p-5"
@@ -64,9 +64,9 @@ export default function DashboardPage() {
               <div className="flex items-center gap-3 mb-3">
                 <div
                   className="w-8 h-8 rounded-[8px] flex items-center justify-center"
-                  style={{ background: `${color}18` }}
+                  style={{ background: C.accent.soft }}
                 >
-                  <Icon size={16} style={{ color }} />
+                  <Icon size={16} style={{ color: C.accent.primary }} />
                 </div>
               </div>
               <div className="text-[24px] font-bold text-white">{value}</div>
@@ -164,7 +164,7 @@ export default function DashboardPage() {
               style={{ background: C.bg.panel, border: `1px solid ${C.border.card}` }}
             >
               <div className="flex items-center gap-2 mb-3">
-                <Star size={13} style={{ color: '#eab308' }} />
+                <Star size={13} style={{ color: C.text.secondary }} />
                 <span className="text-[12px] font-semibold" style={{ color: C.text.body }}>Featured</span>
               </div>
               <div className="space-y-2">
@@ -202,7 +202,7 @@ export default function DashboardPage() {
         >
           <h2 className="text-[16px] font-semibold text-white mb-4">Browse by topic</h2>
           <div className="grid grid-cols-4 gap-3">
-            {TOPICS.map(({ label, count, color, path }) => (
+            {TOPICS.map(({ label, count, path }) => (
               <Link key={label} href={path}>
                 <motion.div
                   whileHover={{ scale: 1.02 }}
@@ -210,7 +210,7 @@ export default function DashboardPage() {
                   className="p-4 rounded-[10px] cursor-pointer"
                   style={{ background: C.bg.panel, border: `1px solid ${C.border.card}` }}
                 >
-                  <div className="w-2 h-2 rounded-full mb-3" style={{ background: color }} />
+                  <div className="w-2 h-2 rounded-full mb-3" style={{ background: C.text.label }} />
                   <div className="text-[13px] font-semibold text-white">{label}</div>
                   <div className="text-[11px] mt-0.5" style={{ color: C.text.secondary }}>{count} lessons</div>
                 </motion.div>

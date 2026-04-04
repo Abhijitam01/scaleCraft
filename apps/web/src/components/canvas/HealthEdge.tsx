@@ -13,11 +13,12 @@ export function HealthEdge({
   targetY,
   sourcePosition,
   targetPosition,
+  data,
 }: EdgeProps) {
   const health = useStore(s => s.nodeHealth[source] ?? 'idle')
   const color = HEALTH_COLORS[health]
 
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -31,6 +32,8 @@ export function HealthEdge({
     : health === 'overloaded' ? '0.9s'
     : health === 'degraded' ? '1.2s'
     : '1.8s'
+
+  const label = data?.label as string | undefined
 
   return (
     <>
@@ -56,6 +59,34 @@ export function HealthEdge({
           animation: `health-edge-flow ${animDuration} linear infinite`,
         }}
       />
+      {/* Protocol label at midpoint */}
+      {label && (
+        <g transform={`translate(${labelX}, ${labelY})`}>
+          <rect
+            x={-18}
+            y={-8}
+            width={36}
+            height={14}
+            rx={3}
+            fill="#0a0a0a"
+            stroke={color}
+            strokeOpacity={0.25}
+            strokeWidth={1}
+          />
+          <text
+            x={0}
+            y={3}
+            textAnchor="middle"
+            fill="#555"
+            fontSize={7}
+            letterSpacing={0.8}
+            fontFamily="monospace"
+            style={{ textTransform: 'uppercase', pointerEvents: 'none', userSelect: 'none' }}
+          >
+            {label}
+          </text>
+        </g>
+      )}
     </>
   )
 }

@@ -1,11 +1,10 @@
 'use client'
 
 import { useStore } from '@/lib/store'
-import { useShallow } from 'zustand/react/shallow'
-import { lesson } from '@/lib/content'
 import { C, NODE_META } from '@/lib/tokens'
 import { ComponentCard } from '@/components/sidebar/ComponentCard'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Info, ShieldAlert, Globe, Zap, CheckCircle2 } from 'lucide-react'
 
 // Node categories for palette grouping
 const PALETTE_CATEGORIES = [
@@ -41,12 +40,12 @@ function StepPills({ currentStep, total }: { currentStep: number; total: number 
         return (
           <div
             key={i}
-            className="h-[5px] rounded-[3px] transition-all duration-300 ease-out"
+            className="h-[4px] rounded-[2px] transition-all duration-300 ease-out"
             style={{
-              width: done ? 22 : active ? 10 : 6,
+              width: done ? 16 : active ? 12 : 6,
               background: (done || active) ? C.accent.primary : '#2a2a2a',
-              opacity: done ? 1 : active ? 1 : 0.5,
-              boxShadow: active ? `0 0 6px ${C.accent.glow}` : 'none',
+              opacity: done ? 0.8 : active ? 1 : 0.4,
+              boxShadow: active ? `0 0 8px ${C.accent.glow}` : 'none',
             }}
           />
         )
@@ -55,97 +54,131 @@ function StepPills({ currentStep, total }: { currentStep: number; total: number 
   )
 }
 
+import { Quiz } from '@/components/simulation/Quiz'
+
 function CompletionSidebar() {
+  const activeLesson = useStore(s => s.activeLesson)
+  if (!activeLesson) return null
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="p-[18px] px-4 rounded-[12px] border"
-      style={{ background: C.semantic.successBg, border: `1px solid ${C.semantic.successBorder}` }}
+      className="p-5 rounded-[12px] border bg-[#0f0f0f]"
+      style={{ borderColor: '#222' }}
     >
-      <div className="text-[22px] mb-2 text-[#4ade80]">✓</div>
-      <div className="text-[#4ade80] text-[14px] font-bold mb-1">
-        Architecture Complete
+      <div className="flex items-center gap-2 mb-4 text-emerald-400">
+        <CheckCircle2 size={18} />
+        <span className="text-[14px] font-bold uppercase tracking-widest">Architecture Complete</span>
       </div>
-      <div className="text-[#4ade80]/70 text-[11px] leading-[1.6]">
-        You&apos;ve scaled from 100 RPS to 15,000 RPS. Review your simulation metrics or proceed to the quiz.
+      
+      <div className="pt-4 border-t border-[#1a1a1a]">
+        <Quiz questions={activeLesson.quiz.questions} onComplete={(score) => {
+          console.log('Quiz complete:', score)
+        }} />
       </div>
     </motion.div>
   )
 }
 
 export function Sidebar({ className }: { className?: string }) {
-  const { currentStepIndex, nodes } = useStore(useShallow((s) => ({ currentStepIndex: s.currentStepIndex, nodes: s.nodes })))
-  const isDone = currentStepIndex >= lesson.steps.length
-  const step = lesson.steps[currentStepIndex]
-  const placedNodeIds = new Set(nodes.map((n) => n.id))
+  const currentStepIndex = useStore(s => s.currentStepIndex)
+  const nodes = useStore(s => s.nodes)
+  const activeLesson = useStore(s => s.activeLesson)
+  
+  if (!activeLesson) return null
+
+  const isDone = currentStepIndex >= activeLesson.steps.length
+  const step = activeLesson.steps[currentStepIndex]
+  const placedNodeIds = new Set(nodes.map((n) => n.data.nodeId))
 
   return (
-    <div className={`flex flex-col p-4 gap-4 overflow-y-auto ${className}`}>
-      {/* Guided lesson panel (only when in active step mode) */}
+    <div className={`flex flex-col p-4 gap-4 overflow-y-auto ${className}`} style={{ background: '#0d0d0d' }}>
       {!isDone && step && (
         <>
-          {/* Header row */}
-          <div className="flex items-center justify-between shrink-0">
-            <span className="text-[#444] text-[10px] uppercase tracking-widest font-semibold">
-              Current Step
+          <div className="flex items-center justify-between shrink-0 mb-1">
+            <span className="text-[#666] text-[9px] uppercase tracking-[0.15em] font-bold">
+              Progress
             </span>
-            <StepPills currentStep={currentStepIndex} total={lesson.steps.length} />
+            <StepPills currentStep={currentStepIndex} total={activeLesson.steps.length} />
           </div>
 
           <AnimatePresence mode="wait">
             <motion.div
               key={step.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
               transition={{ duration: 0.2 }}
               className="flex flex-col gap-4 shrink-0"
             >
-              {/* Instruction Panel */}
-              <div
-                className="rounded-[8px] p-3 border"
-                style={{ background: C.bg.inset, borderColor: C.border.card }}
-              >
-                <div
-                  className="text-[10px] uppercase tracking-widest mb-1.5 font-semibold"
-                  style={{ color: C.accent.hover }}
-                >
+              {/* Main Instruction */}
+              <div className="rounded-[10px] p-4 border relative overflow-hidden" style={{ background: '#141414', borderColor: '#222' }}>
+                <div className="absolute top-0 right-0 p-2 opacity-10">
+                  <Info size={40} />
+                </div>
+                <div className="text-[10px] text-indigo-400 uppercase tracking-widest mb-1.5 font-bold">
                   Step {step.stepNumber}
                 </div>
-                <div className="text-[#ccc] text-[12px] leading-[1.6]">
+                <div className="text-white text-[13px] font-medium leading-[1.5] mb-1">
                   {step.instruction}
                 </div>
-              </div>
-
-              {/* Edge Hint */}
-              <div>
-                <div className="text-[10px] text-[#555] uppercase tracking-widest mb-2 font-semibold">
-                  Then draw edge
-                </div>
-                <div
-                  className="bg-[#141414] rounded-[7px] p-2 flex items-center gap-2 border font-mono text-[12px]"
-                  style={{ borderColor: C.border.card }}
-                >
-                  <span className="text-[#888]">{step.allowedEdge.source.replace(/_/g, ' ')}</span>
-                  <span className="text-[14px]" style={{ color: C.accent.primary }}>→</span>
-                  <span className="text-white">{step.allowedEdge.target.replace(/_/g, ' ')}</span>
+                <div className="text-[#888] text-[11px] leading-[1.5]">
+                  {step.detail}
                 </div>
               </div>
 
-              {/* Component Explanation */}
-              <div className="pt-3 border-t flex flex-col gap-3" style={{ borderColor: C.border.faint }}>
-                <div className="text-[10px] text-[#555] uppercase tracking-widest font-semibold">
-                  The Why
+              {/* Edge/Action Hint */}
+              <div className="px-1">
+                <div className="text-[9px] text-[#555] uppercase tracking-widest mb-2 font-bold flex items-center gap-1.5">
+                  <div className="h-[1px] flex-1 bg-[#222]" />
+                  Required Action
+                  <div className="h-[1px] flex-1 bg-[#222]" />
                 </div>
-                <p className="text-[#ccc] text-[11px] leading-[1.6]">
-                  <strong className="text-white font-semibold block mb-1">What:</strong>
-                  {step.explanation.what}
-                </p>
-                <p className="text-[#ccc] text-[11px] leading-[1.6]">
-                  <strong className="text-white font-semibold block mb-1">Why:</strong>
-                  {step.explanation.why}
-                </p>
+                <div className="bg-[#0a0a0a] rounded-[8px] p-3 border flex items-center justify-center gap-3 font-mono text-[11px]" style={{ borderColor: '#1a1a1a' }}>
+                  <span className="text-[#666]">{step.allowedEdge.source.replace(/_/g, ' ')}</span>
+                  <div className="h-[1px] w-4 bg-indigo-500/50" />
+                  <span className="text-white border-b border-indigo-500/30 pb-0.5">{step.allowedEdge.target.replace(/_/g, ' ')}</span>
+                </div>
+              </div>
+
+              {/* High-Fidelity Explanations */}
+              <div className="flex flex-col gap-3 mt-1">
+                <section>
+                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/80 uppercase tracking-wider font-bold mb-1.5">
+                    <Zap size={10} /> The Why
+                  </div>
+                  <p className="text-[#999] text-[11px] leading-[1.6] pl-3 border-l border-emerald-500/20">
+                    {step.explanation.why}
+                  </p>
+                </section>
+
+                <section>
+                  <div className="flex items-center gap-1.5 text-[10px] text-amber-400/80 uppercase tracking-wider font-bold mb-1.5">
+                    <ShieldAlert size={10} /> Tradeoffs
+                  </div>
+                  <p className="text-[#999] text-[11px] leading-[1.6] pl-3 border-l border-amber-500/20">
+                    {step.explanation.tradeoff}
+                  </p>
+                </section>
+
+                <section>
+                  <div className="flex items-center gap-1.5 text-[10px] text-sky-400/80 uppercase tracking-wider font-bold mb-1.5">
+                    <Globe size={10} /> Real World
+                  </div>
+                  <p className="text-[#999] text-[11px] leading-[1.6] pl-3 border-l border-sky-500/20 italic">
+                    &quot;{step.explanation.realWorld}&quot;
+                  </p>
+                </section>
+
+                <section>
+                  <div className="flex items-center gap-1.5 text-[10px] text-purple-400/80 uppercase tracking-wider font-bold mb-1.5">
+                    <Info size={10} /> Capacity
+                  </div>
+                  <div className="bg-purple-500/5 rounded p-2 text-[10px] text-purple-300 font-mono border border-purple-500/10">
+                    {step.explanation.capacity}
+                  </div>
+                </section>
               </div>
             </motion.div>
           </AnimatePresence>
@@ -154,23 +187,19 @@ export function Sidebar({ className }: { className?: string }) {
 
       {isDone && <CompletionSidebar />}
 
-      {/* Component Palette — categorized */}
-      <div className="flex flex-col gap-4 shrink-0">
-        <div
-          className="text-[10px] text-[#444] uppercase tracking-widest font-semibold pt-2 border-t"
-          style={{ borderColor: C.border.faint }}
-        >
-          Components
+      {/* Component Palette */}
+      <div className="flex flex-col gap-4 mt-4 shrink-0">
+        <div className="text-[9px] text-[#444] uppercase tracking-[0.2em] font-bold pt-4 border-t border-[#1a1a1a]">
+          System Components
         </div>
 
         {PALETTE_CATEGORIES.map(({ label, nodes: catNodes }) => {
-          // Only show categories where at least one node type is in NODE_META
           const available = catNodes.filter(n => NODE_META[n])
           if (available.length === 0) return null
           return (
-            <div key={label}>
-              <div className="text-[9px] text-[#333] uppercase tracking-[0.12em] font-bold mb-2">{label}</div>
-              <div className="flex flex-col gap-1.5">
+            <div key={label} className="flex flex-col gap-2">
+              <div className="text-[8px] text-[#333] uppercase tracking-widest font-black">{label}</div>
+              <div className="flex flex-col gap-1">
                 {available.map((nodeType) => (
                   <ComponentCard
                     key={nodeType}
